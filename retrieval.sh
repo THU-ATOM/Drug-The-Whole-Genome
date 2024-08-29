@@ -10,6 +10,7 @@ POCKET_PATH="/home/jiayinjun/Chem_Aware_Interaction_Understanding/data/NET/PDB/p
 EMB_DIR="./data/emb" # path to the cached mol embedding file
 num_folds=6
 use_cache=True
+save_path="test.txt"
 
 
 
