@@ -37,6 +37,8 @@ smiles,score
 
 ## Benchmarking
 
+link: https://huggingface.co/datasets/bgao95/DrugCLIP_data
+
 download dude.zip, pcba.zip an benchmark_weights.zip, unzip them and put inside ./data dir
 
 
