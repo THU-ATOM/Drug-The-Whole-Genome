@@ -5,7 +5,7 @@
 
 link: https://huggingface.co/datasets/bgao95/DrugCLIP_data
 
-download model_weights.zip, encoded_mol_embs.zip, targets.zip, unzip them and put them inside drugclip/data dir
+download model_weights.zip, encoded_mol_embs.zip, targets.zip, unzip them and put them inside ./data dir
 
 
 ## Set environment
@@ -34,6 +34,17 @@ each line in result file look like this:
 smiles,score
 ```
 
+
+## Benchmarking
+
+download dude.zip, pcba.zip an benchmark_weights.zip, unzip them and put inside ./data dir
+
+
+```
+bash test.sh
+```
+
+select TASK to DUDE or PCBA in test.sh
 
 
 
