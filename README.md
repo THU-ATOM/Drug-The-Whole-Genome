@@ -47,6 +47,13 @@ bash test.sh
 select TASK to DUDE or PCBA in test.sh
 
 
+## Other tools
+
+Pocket Pretraining: https://github.com/THU-ATOM/ProFSA
+
+virtual screening post-processing: https://github.com/THU-ATOM/DrugCLIP_screen_pipeline
+
+
 
 
 
