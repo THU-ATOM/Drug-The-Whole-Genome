@@ -61,7 +61,7 @@ def main(args):
     
     #names, scores = task.retrieve_mols(model, args.mol_path, args.pocket_path, args.emb_dir, 10000)
 
-    task.retrieval_multi_folds(model, "", "", n_folds=args.num_folds)
+    task.retrieval_multi_folds(model, args.mol_path, args.pocket_path, n_folds=args.num_folds)
 
 
 def cli_main():
@@ -71,8 +71,8 @@ def cli_main():
     parser = options.get_validation_parser()
     parser.add_argument("--mol-path", type=str, default="", help="path for mol data")
     parser.add_argument("--pocket-path", type=str, default="", help="path for pocket data")
-    parser.add_argument("--emb-dir", type=str, default="", help="path for saved embedding data")
     parser.add_argument("--num-folds", type=int, default=6, help="number of folds")
+    parser.add_argument("--use-cache", type=str, default="", help="whether use pre-encoded embeddings")
     options.add_model_args(parser)
     args = options.parse_args_and_arch(parser)
 

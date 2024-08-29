@@ -6,8 +6,10 @@ batch_size=8
 weight_path="checkpoint_best.pt"
 MOL_PATH="mols.lmdb" # path to the molecule file
 POCKET_PATH="pocket.lmdb" # path to the pocket file
+POCKET_PATH="/home/jiayinjun/Chem_Aware_Interaction_Understanding/data/NET/PDB/pocket.lmdb"
 EMB_DIR="./data/emb" # path to the cached mol embedding file
 num_folds=6
+use_cache=True
 
 
 
@@ -22,5 +24,5 @@ CUDA_VISIBLE_DEVICES="1" python ./unimol/retrieval.py --user-dir ./unimol $data_
        --log-interval 100 --log-format simple \
        --mol-path $MOL_PATH \
        --pocket-path $POCKET_PATH \
-       --emb-dir $EMB_DIR \
        --num-folds $num_folds \
+       --use-cache $use_cache \

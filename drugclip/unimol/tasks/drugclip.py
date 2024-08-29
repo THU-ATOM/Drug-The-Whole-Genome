@@ -1505,20 +1505,20 @@ class DrugCLIP(UnicoreTask):
 
 
 
-    def retrieval_multi_folds(self, model, pocket_path, save_path, n_folds, use_cache=True, **kwargs):
+    def retrieval_multi_folds(self, model, pocket_path, save_path, n_folds=6, use_cache=True, **kwargs):
         
 
         if n_folds==6:
             # 6 folds
-            ckpts = [f"/drug/drugclip_data/model_weights/6_folds/fold_{i}.pt" for i in range(6)]
+            ckpts = [f"./data/model_weights/6_folds/fold_{i}.pt" for i in range(6)]
 
-            caches = [f"/drug/drugclip_data/encoded_mol_embs/6_folds/fold{i}.pkl" for i in range(6)]
+            caches = [f"./data/encoded_mol_embs/6_folds/fold{i}.pkl" for i in range(6)]
         
         elif n_folds==8:
 
-            ckpts = [f"/drug/drugclip_data/model_weights/8_folds/fold_{i}.pt" for i in range(8)]
+            ckpts = [f"./data/model_weights/8_folds/fold_{i}.pt" for i in range(8)]
 
-            caches = [f"/drug/drugclip_data/encoded_mol_embs/8_folds/fold{i}.pkl" for i in range(8)]
+            caches = [f"./data/encoded_mol_embs/8_folds/fold{i}.pkl" for i in range(8)]
 
 
         res_list = []
@@ -1532,11 +1532,9 @@ class DrugCLIP(UnicoreTask):
             mol_data_path = "/drug/DrugCLIP_chemdata_v2024/DrugCLIP_mols_v2024.lmdb"
             mol_data_path = "/drug/encoding_mols/chemdiv_1640k_both.lmdb"
 
-            pocket_data_path = "/home/jiayinjun/Chem_Aware_Interaction_Understanding/data/NET/PDB/pocket.lmdb"
-
-            #pocket_data_path = pocket_path
+            pocket_data_path = pocket_path
             
-            mol_dataset = self.load_mols_dataset_new(mol_data_path, "atoms", "coordinates")
+            mol_dataset = self.load_mols_dataset(mol_data_path, "atoms", "coordinates")
             num_data = len(mol_dataset)
             bsz=64
             mol_reps = []
