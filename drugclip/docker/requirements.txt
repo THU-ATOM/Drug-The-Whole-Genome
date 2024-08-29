@@ -1,0 +1,75 @@
+# =============================================
+# Lightning
+# =============================================
+torch>=2.1.2
+torchvision>=0.16.2
+torchaudio>=2.1.2
+lightning==2.2.0.rc0
+torchmetrics
+
+# =============================================
+# Hydra
+# =============================================
+hydra-core==1.3.2
+hydra-colorlog==1.2.0
+hydra-optuna-sweeper==1.2.0
+
+# =============================================
+# Logging
+# =============================================
+wandb
+
+# =============================================
+# Common Used Tools
+# =============================================
+einops
+pandas==1.5.3
+# Jinjia2
+# openpyxl==3.0.10
+matplotlib
+scikit-learn==1.2.2
+# pingouin
+scipy==1.10.1
+nanopq
+
+# =============================================
+# Computer Vision
+# =============================================
+# opencv-python
+
+# =============================================
+# Nautral Language Processing
+# =============================================
+transformers
+# spacy           # for text preprocessing
+
+# =============================================
+# Protein & Molecule
+# =============================================
+biotite==0.37.0
+biopython==1.81
+rdkit==2023.9.5
+biopandas
+# https://github.com/dptech-corp/Uni-Core/releases/download/0.0.2/unicore-0.0.1+cu117torch1.13.1-cp39-cp39-linux_x86_64.whl
+
+# =============================================
+# Utils
+# =============================================
+python-dotenv   # loading env variables from .env file
+rich            # beautiful text formatting in terminal
+pytest          # tests
+sh              # for running bash commands in some tests
+ipython         # convenient interactive shell
+jupyterlab      # JupyterLab to run Jupyter Notebooks
+jsonlines       # for reading and writing jsonl files
+ray             # for distributed running of tasks
+# gpustat         # for getting GPU usage
+
+# =============================================
+# Linters
+# =============================================
+pre-commit      # hooks for applying linters on commit
+black           # code formatting
+isort           # import sorting
+flake8          # code analysis
+nbstripout      # remove output from jupyter notebooks
