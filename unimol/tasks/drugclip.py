@@ -1530,7 +1530,7 @@ class DrugCLIP(UnicoreTask):
 
             
             mol_data_path = "/drug/DrugCLIP_chemdata_v2024/DrugCLIP_mols_v2024.lmdb"
-            mol_data_path = "/drug/encoding_mols/chemdiv_1640k_both.lmdb"
+            mol_data_path = "/drug/encoding_mols/chemdiv_1640k.lmdb"
 
             pocket_data_path = pocket_path
             
