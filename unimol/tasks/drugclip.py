@@ -1512,13 +1512,13 @@ class DrugCLIP(UnicoreTask):
             # 6 folds
             ckpts = [f"./data/model_weights/6_folds/fold_{i}.pt" for i in range(6)]
 
-            caches = [f"./data/encoded_mol_embs/6_folds/fold{i}.pkl" for i in range(6)]
+            caches = [f"./data/encoded_mol_embs/new_6_folds/fold{i}.pkl" for i in range(6)]
         
         elif n_folds==8:
 
             ckpts = [f"./data/model_weights/8_folds/fold_{i}.pt" for i in range(8)]
 
-            caches = [f"./data/encoded_mol_embs/8_folds/fold{i}.pkl" for i in range(8)]
+            caches = [f"./data/encoded_mol_embs/new_8_folds/fold{i}.pkl" for i in range(8)]
 
 
         res_list = []
@@ -1613,11 +1613,13 @@ class DrugCLIP(UnicoreTask):
 
         res_new = np.array(res_list)
         res_new = np.mean(res_new, axis=0)
-        medians = np.median(res_new, axis=1, keepdims=True)
-        # get mad for each row
-        mads = np.median(np.abs(res_new - medians), axis=1, keepdims=True)
-        # get z score
-        res_new = 0.6745 * (res_new - medians) / (mads + 1e-6)
+
+        if n_folds==6:
+            medians = np.median(res_new, axis=1, keepdims=True)
+            # get mad for each row
+            mads = np.median(np.abs(res_new - medians), axis=1, keepdims=True)
+            # get z score
+            res_new = 0.6745 * (res_new - medians) / (mads + 1e-6)
 
         res_max = np.max(res_new, axis=0)
         ret_names = mol_names
@@ -1629,7 +1631,7 @@ class DrugCLIP(UnicoreTask):
 
         # get top 1%
 
-        lis = lis[:int(len(lis) * 0.01)]
+        lis = lis[:int(len(lis) * 1.00)]
 
         
         res_path = save_path
