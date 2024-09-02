@@ -59,10 +59,10 @@ def main(args):
 
     model.eval()
     if args.test_task=="DUDE":
-        task.test_dude(model)
+        task.test_dude(model, use_folds = args.use_folds)
 
     elif args.test_task=="PCBA":
-        task.test_pcba(model)
+        task.test_pcba(model, use_folds = args.use_folds)
 
 
 def cli_main():
@@ -71,6 +71,7 @@ def cli_main():
 
     parser = options.get_validation_parser()
     parser.add_argument("--test-task", type=str, default="DUDE", help="test task", choices=["DUDE", "PCBA"])
+    parser.add_argument("--use-folds", type=str, default=True, help="use 6 folds weights")
     options.add_model_args(parser)
     args = options.parse_args_and_arch(parser)
 

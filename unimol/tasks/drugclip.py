@@ -772,6 +772,137 @@ class DrugCLIP(UnicoreTask):
             loss, sample_size, logging_output = loss(model, sample)
         return loss, sample_size, logging_output
 
+    def test_pcba_target_ensemble(self, target, model, **kwargs):
+
+
+        data_path = "./data/lit_pcba/" + target + "/mols.lmdb"
+        mol_dataset = self.load_mols_dataset(data_path, "atoms", "coordinates")
+        num_data = len(mol_dataset)
+        bsz=512
+        print(num_data//bsz)
+        
+        
+        # generate mol data
+        
+        mol_data = torch.utils.data.DataLoader(mol_dataset, batch_size=bsz, collate_fn=mol_dataset.collater)
+
+
+        # 6 folds
+
+        ckpts = [f"./data/model_weights/6_folds/fold_{i}.pt" for i in range(6)]
+
+        res_list = []
+        for fold, ckpt in enumerate(ckpts[:6]):
+            # random generate mol_resps with size (num_data, 128)
+            mol_reps = np.random.randn(num_data, 128)
+            state = checkpoint_utils.load_checkpoint_to_cpu(ckpt)
+            model.load_state_dict(state["model"], strict=False)
+            mol_reps = []
+            mol_names = []
+            labels = []
+            for _, sample in enumerate(tqdm(mol_data)):
+                sample = unicore.utils.move_to_cuda(sample)
+                dist = sample["net_input"]["mol_src_distance"]
+                et = sample["net_input"]["mol_src_edge_type"]
+                st = sample["net_input"]["mol_src_tokens"]
+                mol_padding_mask = st.eq(model.mol_model.padding_idx)
+                mol_x = model.mol_model.embed_tokens(st)
+                n_node = dist.size(-1)
+                gbf_feature = model.mol_model.gbf(dist, et)
+                gbf_result = model.mol_model.gbf_proj(gbf_feature)
+                graph_attn_bias = gbf_result
+                graph_attn_bias = graph_attn_bias.permute(0, 3, 1, 2).contiguous()
+                graph_attn_bias = graph_attn_bias.view(-1, n_node, n_node)
+                mol_outputs = model.mol_model.encoder(
+                    mol_x, padding_mask=mol_padding_mask, attn_mask=graph_attn_bias
+                )
+                mol_encoder_rep = mol_outputs[0][:,0,:]
+                mol_emb = mol_encoder_rep
+                mol_emb = model.mol_project(mol_encoder_rep)
+                mol_emb = mol_emb / mol_emb.norm(dim=-1, keepdim=True)
+                #print(mol_emb.dtype)
+                mol_emb = mol_emb.detach().cpu().numpy()
+                #print(mol_emb.dtype)
+                mol_reps.append(mol_emb)
+                mol_names.extend(sample["smi_name"])
+                labels.extend(sample["target"].detach().cpu().numpy())
+            mol_reps = np.concatenate(mol_reps, axis=0)
+            labels = np.array(labels, dtype=np.int32)
+            # labels = np.zeros(num_data)
+            # generate pocket data
+            data_path = "./data/lit_pcba/" + target + "/pockets.lmdb"
+            if not os.path.exists(data_path):
+                return None
+            pocket_dataset = self.load_pockets_dataset(data_path)
+            pocket_data = torch.utils.data.DataLoader(pocket_dataset, batch_size=bsz, collate_fn=pocket_dataset.collater)
+            #pocket_reps = np.random.randn(len(pocket_data), 128)
+            pocket_reps = []
+
+            for _, sample in enumerate(tqdm(pocket_data)):
+                sample = unicore.utils.move_to_cuda(sample)
+                dist = sample["net_input"]["pocket_src_distance"]
+                et = sample["net_input"]["pocket_src_edge_type"]
+                st = sample["net_input"]["pocket_src_tokens"]
+                pocket_padding_mask = st.eq(model.pocket_model.padding_idx)
+                pocket_x = model.pocket_model.embed_tokens(st)
+                n_node = dist.size(-1)
+                gbf_feature = model.pocket_model.gbf(dist, et)
+                gbf_result = model.pocket_model.gbf_proj(gbf_feature)
+                graph_attn_bias = gbf_result
+                graph_attn_bias = graph_attn_bias.permute(0, 3, 1, 2).contiguous()
+                graph_attn_bias = graph_attn_bias.view(-1, n_node, n_node)
+                pocket_outputs = model.pocket_model.encoder(
+                    pocket_x, padding_mask=pocket_padding_mask, attn_mask=graph_attn_bias
+                )
+                pocket_encoder_rep = pocket_outputs[0][:,0,:]
+                #pocket_emb = pocket_encoder_rep
+                pocket_emb = model.pocket_project(pocket_encoder_rep)
+                pocket_emb = pocket_emb / pocket_emb.norm(dim=-1, keepdim=True)
+                pocket_emb = pocket_emb.detach().cpu().numpy()
+                pocket_reps.append(pocket_emb)
+            pocket_reps = np.concatenate(pocket_reps, axis=0)
+            print(pocket_reps.shape)
+            res = pocket_reps @ mol_reps.T
+            print(res.shape)
+            #res = np.expand_dims(res, axis=0)
+            #print(res.shape)
+            res_list.append(res)
+        
+        
+        # get mean value of values in res_list without reduce dimension
+
+        #res = np.concatenate(res_list, axis=0)
+
+        res = np.array(res_list)
+
+        res = np.mean(res, axis=0)
+       
+        print(res.shape)
+
+        medians = np.median(res, axis=1, keepdims=True)
+            # get mad for each row
+        mads = np.median(np.abs(res - medians), axis=1, keepdims=True)
+        # get z score
+        res = 0.6745 * (res - medians) / (mads + 1e-6)
+        # get max for each column
+
+
+        
+        res_single = res.max(axis=0)
+
+        auc, bedroc, ef_list, re_list = cal_metrics(labels, res_single, 80.5)
+        
+        
+        # print(target)
+
+        # print(np.sum(labels), len(labels)-np.sum(labels))
+
+        # print("auc", auc)
+        # print("bedroc", bedroc)
+        # print("ef", ef_list)
+
+        return auc, bedroc, ef_list, re_list
+
 
     def test_pcba_target(self, name, model, **kwargs):
         """Encode a dataset with the molecule encoder."""
@@ -847,6 +978,13 @@ class DrugCLIP(UnicoreTask):
         pocket_reps = np.concatenate(pocket_reps, axis=0)
 
         res = pocket_reps @ mol_reps.T
+
+        medians = np.median(res, axis=1, keepdims=True)
+            # get mad for each row
+        mads = np.median(np.abs(res - medians), axis=1, keepdims=True)
+        # get z score
+        res = 0.6745 * (res - medians) / (mads + 1e-6)
+        
         res_single = res.max(axis=0)
         auc, bedroc, ef_list, re_list = cal_metrics(labels, res_single, 80.5)
 
@@ -855,10 +993,8 @@ class DrugCLIP(UnicoreTask):
     
     
 
-    def test_pcba(self, model, **kwargs):
-        #ckpt_date = self.args.finetune_from_model.split("/")[-2]
-        #save_name = "/home/gaobowen/DrugClip/test_results/pcba/" + ckpt_date + ".txt"
-        save_name = ""
+    def test_pcba(self, model, use_folds=True, **kwargs):
+
         
         targets = os.listdir("./data/lit_pcba/")
 
@@ -880,7 +1016,10 @@ class DrugCLIP(UnicoreTask):
             "0.05": []
         }
         for target in targets:
-            auc, bedroc, ef, re = self.test_pcba_target(target, model)
+            if use_folds:
+                auc, bedroc, ef, re = self.test_pcba_target_ensemble(target, model)
+            else:
+                auc, bedroc, ef, re = self.test_pcba_target(target, model)
             auc_list.append(auc)
             bedroc_list.append(bedroc)
             for key in ef:
@@ -891,34 +1030,21 @@ class DrugCLIP(UnicoreTask):
                 re_list[key].append(re[key])
         print(auc_list)
         print(ef_list)
-        print("auc 25%", np.percentile(auc_list, 25))
-        print("auc 50%", np.percentile(auc_list, 50))
-        print("auc 75%", np.percentile(auc_list, 75))
+
         print("auc mean", np.mean(auc_list))
-        print("bedroc 25%", np.percentile(bedroc_list, 25))
-        print("bedroc 50%", np.percentile(bedroc_list, 50))
-        print("bedroc 75%", np.percentile(bedroc_list, 75))
         print("bedroc mean", np.mean(bedroc_list))
-        #print(np.median(auc_list))
-        #print(np.median(ef_list))
         for key in ef_list:
-            print("ef", key, "25%", np.percentile(ef_list[key], 25))
-            print("ef",key, "50%", np.percentile(ef_list[key], 50))
-            print("ef",key, "75%", np.percentile(ef_list[key], 75))
             print("ef",key, "mean", np.mean(ef_list[key]))
         for key in re_list:
-            print("re",key, "25%", np.percentile(re_list[key], 25))
-            print("re",key, "50%", np.percentile(re_list[key], 50))
-            print("re",key, "75%", np.percentile(re_list[key], 75))
             print("re",key, "mean", np.mean(re_list[key]))
 
         return 
     
     def test_dude_target(self, target, model, **kwargs):
 
-        data_path = "./data/DUD-E/raw/all/" + target + "/mols.lmdb"
-        data_path = "/data/protein/DUD-E_ori/raw/all/" + target + "/mols.lmdb"
-        #data_path = "/drug/DTWG_DUD-E/" + target + "/RealProtein_RealPocket/pockets.lmdb"
+        data_path = "./data/DUD-E/" + target + "/mols.lmdb"
+        if not os.path.exists(data_path):
+            return None
         mol_dataset = self.load_mols_dataset(data_path, "atoms", "coordinates")
         num_data = len(mol_dataset)
         bsz=512
@@ -959,8 +1085,7 @@ class DrugCLIP(UnicoreTask):
         mol_reps = np.concatenate(mol_reps, axis=0)
         labels = np.array(labels, dtype=np.int32)
         # generate pocket data
-        data_path = "/drug/DUD-E/raw/" + target + "/pocket.lmdb"
-        #data_path = "/drug/DTWG_DUD-E/" + target + "/AF2_fpocket_BFN/pockets.lmdb"
+        data_path = "./data/DUD-E/" + target + "/pocket.lmdb"
         if not os.path.exists(data_path):
             return None
         pocket_dataset = self.load_pockets_dataset(data_path)
@@ -1015,12 +1140,13 @@ class DrugCLIP(UnicoreTask):
 
         return auc, bedroc, ef_list, re_list, res_single, labels
 
-
     def test_dude_target_ensemble(self, target, model, **kwargs):
 
-        data_path = "./data/DUD-E/raw/all/" + target + "/mols.lmdb"
-        data_path = "/data/protein/DUD-E_ori/raw/all/" + target + "/mols.lmdb"
-        #data_path = "/drug/DTWG_DUD-E/" + target + "/RealProtein_RealPocket/pockets.lmdb"
+       
+   
+        data_path = "./data/DUD-E/" + target + "/mols.lmdb"
+        if not os.path.exists(data_path):
+            return None
         mol_dataset = self.load_mols_dataset(data_path, "atoms", "coordinates")
         num_data = len(mol_dataset)
         bsz=512
@@ -1032,14 +1158,9 @@ class DrugCLIP(UnicoreTask):
         mol_data = torch.utils.data.DataLoader(mol_dataset, batch_size=bsz, collate_fn=mol_dataset.collater)
 
         # 6 folds
-        ckpts = [
-            "/drug/save_dir/affinity/2023-12-06_20-39-17/checkpoint_best.pt",
-            "/drug/save_dir/affinity/2023-12-06_23-23-23/checkpoint_best.pt",
-            "/drug/save_dir/affinity/2023-12-07_10-25-59/checkpoint_best.pt",
-            "/drug/save_dir/affinity/2023-12-07_14-46-18/checkpoint_best.pt",
-            "/drug/save_dir/affinity/2023-12-07_22-30-21/checkpoint_best.pt",
-            "/drug/save_dir/affinity/2023-12-08_11-21-09/checkpoint_best.pt",
-        ]
+
+        ckpts = [f"./data/model_weights/6_folds/fold_{i}.pt" for i in range(6)]
+
 
 
 
@@ -1080,8 +1201,8 @@ class DrugCLIP(UnicoreTask):
             mol_reps = np.concatenate(mol_reps, axis=0)
             labels = np.array(labels, dtype=np.int32)
             # generate pocket data
-            data_path = "/drug/DUD-E/raw/" + target + "/pocket.lmdb"
-            #data_path = "/drug/DTWG_DUD-E/" + target + "/AF2_fpocket_BFN/pockets.lmdb"
+            #data_path = "./data/DUD-E/" + target + "/AF2_RealPocket_BFN/pockets.lmdb"
+            data_path = "./data/DUD-E/" + target + "/pocket.lmdb"
             if not os.path.exists(data_path):
                 return None
             pocket_dataset = self.load_pockets_dataset(data_path)
@@ -1113,22 +1234,27 @@ class DrugCLIP(UnicoreTask):
             pocket_reps = np.concatenate(pocket_reps, axis=0)
             print(pocket_reps.shape)
             res = pocket_reps @ mol_reps.T
+            #res_list.append(np.expand_dims(res, axis=0))
             res_list.append(res)
         
-        res = np.concatenate(res_list, axis=0)
+        #res = np.concatenate(res_list, axis=0)
+
+        res = np.array(res_list)
+        print(res.shape)
+        res = res.mean(axis=0)
 
         print(res.shape)
 
-        # medians = np.median(res, axis=1, keepdims=True)
-        #     # get mad for each row
-        # mads = np.median(np.abs(res - medians), axis=1, keepdims=True)
-        # # get z score
-        # res = 0.6745 * (res - medians) / (mads + 1e-6)
+        medians = np.median(res, axis=1, keepdims=True)
+            # get mad for each row
+        mads = np.median(np.abs(res - medians), axis=1, keepdims=True)
+        # get z score
+        res = 0.6745 * (res - medians) / (mads + 1e-6)
         # get max for each column
         #res_max = np.max(res_cur, axis=0)
         #res = np.max(res, axis=0)
 
-        res_single = res.mean(axis=0)
+        res_single = res.max(axis=0)
 
         auc, bedroc, ef_list, re_list = cal_metrics(labels, res_single, 80.5)
         
@@ -1142,11 +1268,14 @@ class DrugCLIP(UnicoreTask):
         print("ef", ef_list)
 
         return auc, bedroc, ef_list, re_list, res_single, labels
+    
 
-    def test_dude(self, model, **kwargs):
+    
+
+    def test_dude(self, model, use_folds=True, **kwargs):
 
 
-        targets = os.listdir("/data/protein/DUD-E_ori/raw/all/")
+        targets = os.listdir("./data/DUD-E")
         auc_list = []
         bedroc_list = []
         ef_list = []
@@ -1169,7 +1298,10 @@ class DrugCLIP(UnicoreTask):
         for i,target in enumerate(targets):
             print(i)
             #try:
-            res = self.test_dude_target_ensemble(target, model)
+            if use_folds:
+                res = self.test_dude_target_ensemble(target, model)
+            else:
+                res = self.test_dude_target(target, model)
             #except:
             #    continue
             if res is None:
@@ -1199,14 +1331,7 @@ class DrugCLIP(UnicoreTask):
 
         # save printed results 
         
-    
-        # save ef_dic and bedroc_dic
 
-        with open("./vs_results/ef/BFNFPocket-AF2.pkl", "wb") as f:
-            pickle.dump(ef_dic, f)
-        
-        with open("./vs_results/bedroc/BFNFPocket-AF2.pkl", "wb") as f:
-            pickle.dump(bedroc_dic, f)
         
         
         return
