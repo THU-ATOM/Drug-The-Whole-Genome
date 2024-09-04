@@ -55,6 +55,8 @@ Pocket Pretraining: https://github.com/THU-ATOM/ProFSA
 
 virtual screening post-processing: https://github.com/THU-ATOM/DrugCLIP_screen_pipeline
 
+Pocket detection: https://github.com/THU-ATOM/Pocket-Detection-of-DTWG
+
 
 
 
