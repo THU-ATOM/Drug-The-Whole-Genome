@@ -1,4 +1,4 @@
-# DrugCLIP_vs
+# DrugCLIP for Drug-The-Whole-Genome
 
 
 ## Model weights and encoded embeddings
