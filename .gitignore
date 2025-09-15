@@ -1,6 +1,1 @@
-**/__pycache__/
-**/**/__pycache__/
-data
-**/py_scripts
-*.txt
-test*
+.gitattributes # ensure it’s in repo root

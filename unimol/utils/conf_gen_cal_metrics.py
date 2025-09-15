@@ -165,6 +165,9 @@ def clustering(mol, M=1000, N=100):
 
 def single_process_data(content):
     smi, tgt_mol_list = content[0], content[1]
+
+    print(f"[INFO] Processing SMILES: {smi}, tgt_mol_list size: {len(tgt_mol_list)}")
+
     M = min(20 * len(tgt_mol_list), 2000)
     N = 2 * len(tgt_mol_list)
     tgt_mol = copy.deepcopy(tgt_mol_list[0])

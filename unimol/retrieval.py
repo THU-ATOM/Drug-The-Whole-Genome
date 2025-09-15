@@ -62,7 +62,35 @@ def main(args):
     
     #names, scores = task.retrieve_mols(model, args.mol_path, args.pocket_path, args.emb_dir, 10000)
 
-    task.retrieval_multi_folds(model, args.pocket_path, args.save_path, args.mol_path, fold_version=args.fold_version, use_cache=args.use_cache, use_cuda=use_cuda)
+    # single conformer & multi conformer share same retrieval logic
+    res_matrix, mol_names = task.drugclip_retrieval_scoring(
+    model,
+    pocket_path=args.pocket_path,
+    mol_data_path=args.mol_path,
+    fold_version=args.fold_version,
+    use_cache=args.use_cache,
+    use_cuda=use_cuda,
+    custom_cache_dir=args.custom_cache_dir,
+    multi_conf=args.multi_conf  
+    )
+
+    # single conformer & multi conformer have different aggregation logic
+    if args.multi_conf:
+        task.save_multiconformer_results(
+            res_new=res_matrix,
+            mol_names=mol_names,
+            pocket_data_path=args.pocket_path,
+            save_path=args.save_path,
+            topk_percent=args.topk_percent
+        )
+    else:
+        task.save_singleconformer_results(
+            res_new=res_matrix,
+            mol_names=mol_names,
+            pocket_data_path=args.pocket_path,
+            save_path=args.save_path,
+            topk_percent=args.topk_percent
+        )
 
 
 def cli_main():
@@ -74,7 +102,11 @@ def cli_main():
     parser.add_argument("--pocket-path", type=str, default="", help="path for pocket data")
     parser.add_argument("--fold-version", type=str, default="6_folds", help="fold version")
     parser.add_argument("--use-cache", type=str, default="", help="whether use pre-encoded embeddings")
+    parser.add_argument("--custom-cache-dir", type=str, default=None, help="optional custom cache path for ligand embeddings")
+    parser.add_argument("--topk-percent", type=float, default=2.0, help="Percentage of top-ranked ligands to save in result (default: 2%%)",)
     parser.add_argument("--save-path", type=str, default="", help="path for saved result")
+    parser.add_argument("--multi-conf", type=lambda x: x.lower() == "true", default=False, help="Enable multi-conformer ligand retrieval")
+
     options.add_model_args(parser)
     args = options.parse_args_and_arch(parser)
 
