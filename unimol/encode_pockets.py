@@ -4,30 +4,24 @@
 # This source code is licensed under the MIT license found in the
 # LICENSE file in the root directory of this source tree.
 
-import logging
 import os
-import sys
 import pickle
 import re
 import warnings
-import torch
+
 import numpy as np
 import lmdb
-from unicore import distributed_utils, options
-from unicore import tasks
-
 from Bio.PDB import PDBParser, Chain, is_aa
 from Bio.PDB.Residue import DisorderedResidue, Residue
 from Bio.PDB.Atom import DisorderedAtom
 from Bio.PDB.StructureBuilder import PDBConstructionWarning
 
-logging.basicConfig(
-    format="%(asctime)s | %(levelname)s | %(name)s | %(message)s",
-    datefmt="%Y-%m-%d %H:%M:%S",
-    level=os.environ.get("LOGLEVEL", "INFO").upper(),
-    stream=sys.stdout,
-)
-logger = logging.getLogger("unimol.inference")
+from unicore import distributed_utils, options, tasks
+from .inference_utils import setup_logging, load_model
+
+setup_logging()
+
+warnings.filterwarnings("ignore", category=PDBConstructionWarning)
 
 
 def write_lmdb(data, lmdb_path, num):
@@ -130,35 +124,12 @@ def process_one_pdbdir(dirs,name='pocket'):
 
 
 def main(args):
-
-    use_fp16 = args.fp16
-    use_cuda = torch.cuda.is_available() and not args.cpu
-
-    if use_cuda:
-        torch.cuda.set_device(args.device_id)
-
-
-    # Load model
-    logger.info("loading model(s) from {}".format(args.path))
-    #state = checkpoint_utils.load_checkpoint_to_cpu(args.path)
     task = tasks.setup_task(args)
-    model = task.build_model(args)
-    #model.load_state_dict(state["model"], strict=False)
-
-    # Move models to GPU
-    if use_fp16:
-        model.half()
-    if use_cuda:
-        model.cuda()
-
-    # Print args
-    logger.info(args)
-
-
+    model, _ = load_model(args, task)
     model.eval()
 
     if not os.path.exists(os.path.join(args.pocket_dir, "pocket.lmdb")):
-        ret = process_one_pdbdir(args.pocket_dir)
+        process_one_pdbdir(args.pocket_dir)
 
     # read pocket dir 
     pocket_reps, pocket_names = task.encode_pockets_multi_folds(model, args.pocket_dir, os.path.join(args.pocket_dir, "pocket.lmdb"))

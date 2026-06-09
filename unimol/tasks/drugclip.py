@@ -8,6 +8,23 @@ import numpy as np
 import torch
 import pickle
 from tqdm import tqdm
+
+# Fold checkpoint and cache paths indexed by fold_version string.
+_FOLD_CONFIGS = {
+    "6_folds": (
+        [f"./data/model_weights/6_folds/fold_{i}.pt" for i in range(6)],
+        [f"./data/encoded_mol_embs/6_folds/fold{i}.pkl" for i in range(6)],
+    ),
+    "6_folds_filtered": (
+        [f"./data/model_weights/6_folds/fold_{i}.pt" for i in range(6)],
+        [f"./data/encoded_mol_embs/6_folds_filtered/fold{i}.pkl" for i in range(6)],
+    ),
+    "8_folds": (
+        [f"./data/model_weights/8_folds/fold_{i}.pt" for i in range(8)],
+        [f"./data/encoded_mol_embs/8_folds/fold{i}.pkl" for i in range(8)],
+    ),
+}
+
 from unicore import checkpoint_utils
 import unicore
 from unicore.data import (AppendTokenDataset, Dictionary, EpochShuffleDataset,
@@ -213,10 +230,6 @@ class DrugCLIP(UnicoreTask):
             poc_dataset = KeyDataset(dataset, "pocket")
 
 
-        def PrependAndAppend(dataset, pre_token, app_token):
-            dataset = PrependTokenDataset(dataset, pre_token)
-            return AppendTokenDataset(dataset, app_token)
-
         dataset = RemoveHydrogenPocketDataset(
             dataset,
             "pocket_atoms",
@@ -234,79 +247,17 @@ class DrugCLIP(UnicoreTask):
 
         dataset = RemoveHydrogenDataset(dataset, "atoms", "coordinates", True, True)
 
-
         apo_dataset = NormalizeDataset(dataset, "coordinates")
         apo_dataset = NormalizeDataset(apo_dataset, "pocket_coordinates")
 
-        src_dataset = KeyDataset(apo_dataset, "atoms")
-        mol_len_dataset = LengthDataset(src_dataset)
-        src_dataset = TokenizeDataset(
-            src_dataset, self.dictionary, max_seq_len=self.args.max_seq_len
-        )
-        coord_dataset = KeyDataset(apo_dataset, "coordinates")
-        src_dataset = PrependAndAppend(
-            src_dataset, self.dictionary.bos(), self.dictionary.eos()
-        )
-        edge_type = EdgeTypeDataset(src_dataset, len(self.dictionary))
-        coord_dataset = FromNumpyDataset(coord_dataset)
-        distance_dataset = DistanceDataset(coord_dataset)
-        coord_dataset = PrependAndAppend(coord_dataset, 0.0, 0.0)
-        distance_dataset = PrependAndAppend2DDataset(distance_dataset, 0.0)
-
-        src_pocket_dataset = KeyDataset(apo_dataset, "pocket_atoms")
-        pocket_len_dataset = LengthDataset(src_pocket_dataset)
-        src_pocket_dataset = TokenizeDataset(
-            src_pocket_dataset,
-            self.pocket_dictionary,
-            max_seq_len=self.args.max_seq_len,
-        )
-        coord_pocket_dataset = KeyDataset(apo_dataset, "pocket_coordinates")
-        src_pocket_dataset = PrependAndAppend(
-            src_pocket_dataset,
-            self.pocket_dictionary.bos(),
-            self.pocket_dictionary.eos(),
-        )
-        pocket_edge_type = EdgeTypeDataset(
-            src_pocket_dataset, len(self.pocket_dictionary)
-        )
-        coord_pocket_dataset = FromNumpyDataset(coord_pocket_dataset)
-        distance_pocket_dataset = DistanceDataset(coord_pocket_dataset)
-        coord_pocket_dataset = PrependAndAppend(coord_pocket_dataset, 0.0, 0.0)
-        distance_pocket_dataset = PrependAndAppend2DDataset(
-            distance_pocket_dataset, 0.0
-        )
+        mol_net_input, mol_len_dataset = self._mol_net_input_from_normalized(apo_dataset)
+        pocket_net_input, pocket_len_dataset = self._build_pocket_net_input(apo_dataset)
 
         nest_dataset = NestedDictionaryDataset(
             {
                 "net_input": {
-                    "mol_src_tokens": RightPadDataset(
-                        src_dataset,
-                        pad_idx=self.dictionary.pad(),
-                    ),
-                    "mol_src_distance": RightPadDataset2D(
-                        distance_dataset,
-                        pad_idx=0,
-                    ),
-                    "mol_src_edge_type": RightPadDataset2D(
-                        edge_type,
-                        pad_idx=0,
-                    ),
-                    "pocket_src_tokens": RightPadDataset(
-                        src_pocket_dataset,
-                        pad_idx=self.pocket_dictionary.pad(),
-                    ),
-                    "pocket_src_distance": RightPadDataset2D(
-                        distance_pocket_dataset,
-                        pad_idx=0,
-                    ),
-                    "pocket_src_edge_type": RightPadDataset2D(
-                        pocket_edge_type,
-                        pad_idx=0,
-                    ),
-                    "pocket_src_coord": RightPadDatasetCoord(
-                        coord_pocket_dataset,
-                        pad_idx=0,
-                    ),
+                    **mol_net_input,
+                    **pocket_net_input,
                     "mol_len": RawArrayDataset(mol_len_dataset),
                     "pocket_len": RawArrayDataset(pocket_len_dataset)
                 },
@@ -334,164 +285,105 @@ class DrugCLIP(UnicoreTask):
 
     
 
-    def load_mols_dataset(self, data_path,atoms,coords, **kwargs):
- 
+    @staticmethod
+    def _prepend_append(dataset, pre_token, app_token):
+        dataset = PrependTokenDataset(dataset, pre_token)
+        return AppendTokenDataset(dataset, app_token)
+
+    def _build_mol_net_input(self, dataset, atoms, coords):
+        """Featurize a raw molecule dataset into the standard net_input sub-dict.
+
+        Wraps the dataset (AffinityMolDataset -> RemoveHydrogen -> Normalize)
+        then delegates to _mol_net_input_from_normalized.
+        Returns (net_input_dict, len_dataset).
+        """
+        dataset = AffinityMolDataset(dataset, self.args.seed, atoms, coords, False)
+        dataset = RemoveHydrogenDataset(dataset, "atoms", "coordinates", True, True)
+        apo_dataset = NormalizeDataset(dataset, "coordinates")
+        return self._mol_net_input_from_normalized(apo_dataset)
+
+    def _mol_net_input_from_normalized(self, apo_dataset):
+        """Build mol net_input from an already hydrogen-stripped, coordinate-
+        normalized dataset. Returns (net_input_dict, len_dataset)."""
+        src_dataset = KeyDataset(apo_dataset, "atoms")
+        len_dataset = LengthDataset(src_dataset)
+        src_dataset = TokenizeDataset(
+            src_dataset, self.dictionary, max_seq_len=self.args.max_seq_len
+        )
+        coord_dataset = KeyDataset(apo_dataset, "coordinates")
+        src_dataset = self._prepend_append(
+            src_dataset, self.dictionary.bos(), self.dictionary.eos()
+        )
+        edge_type = EdgeTypeDataset(src_dataset, len(self.dictionary))
+        coord_dataset = FromNumpyDataset(coord_dataset)
+        distance_dataset = DistanceDataset(coord_dataset)
+        coord_dataset = self._prepend_append(coord_dataset, 0.0, 0.0)
+        distance_dataset = PrependAndAppend2DDataset(distance_dataset, 0.0)
+
+        net_input = {
+            "mol_src_tokens": RightPadDataset(
+                src_dataset, pad_idx=self.dictionary.pad()
+            ),
+            "mol_src_distance": RightPadDataset2D(distance_dataset, pad_idx=0),
+            "mol_src_edge_type": RightPadDataset2D(edge_type, pad_idx=0),
+        }
+        return net_input, len_dataset
+
+    def _build_pocket_net_input(self, apo_dataset):
+        """Featurize a pocket dataset (already hydrogen-stripped, cropped and
+        coordinate-normalized) into the standard pocket net_input sub-dict.
+        Returns (net_input_dict, len_dataset).
+        """
+        src_pocket_dataset = KeyDataset(apo_dataset, "pocket_atoms")
+        len_dataset = LengthDataset(src_pocket_dataset)
+        src_pocket_dataset = TokenizeDataset(
+            src_pocket_dataset, self.pocket_dictionary, max_seq_len=self.args.max_seq_len
+        )
+        coord_pocket_dataset = KeyDataset(apo_dataset, "pocket_coordinates")
+        src_pocket_dataset = self._prepend_append(
+            src_pocket_dataset, self.pocket_dictionary.bos(), self.pocket_dictionary.eos()
+        )
+        pocket_edge_type = EdgeTypeDataset(src_pocket_dataset, len(self.pocket_dictionary))
+        coord_pocket_dataset = FromNumpyDataset(coord_pocket_dataset)
+        distance_pocket_dataset = DistanceDataset(coord_pocket_dataset)
+        coord_pocket_dataset = self._prepend_append(coord_pocket_dataset, 0.0, 0.0)
+        distance_pocket_dataset = PrependAndAppend2DDataset(distance_pocket_dataset, 0.0)
+
+        net_input = {
+            "pocket_src_tokens": RightPadDataset(
+                src_pocket_dataset, pad_idx=self.pocket_dictionary.pad()
+            ),
+            "pocket_src_distance": RightPadDataset2D(distance_pocket_dataset, pad_idx=0),
+            "pocket_src_edge_type": RightPadDataset2D(pocket_edge_type, pad_idx=0),
+            "pocket_src_coord": RightPadDatasetCoord(coord_pocket_dataset, pad_idx=0),
+        }
+        return net_input, len_dataset
+
+
+    def load_mols_dataset(self, data_path, atoms, coords, **kwargs):
         dataset = LMDBDataset(data_path)
         label_dataset = KeyDataset(dataset, "label", default=0)
-        dataset = AffinityMolDataset(
-            dataset,
-            self.args.seed,
-            atoms,
-            coords,
-            False,
-        )
-        
         smi_dataset = KeyDataset(dataset, "smi")
-
-        def PrependAndAppend(dataset, pre_token, app_token):
-            dataset = PrependTokenDataset(dataset, pre_token)
-            return AppendTokenDataset(dataset, app_token)
-
-
-
-        dataset = RemoveHydrogenDataset(dataset, "atoms", "coordinates", True, True)
-
-
-        apo_dataset = NormalizeDataset(dataset, "coordinates")
-
-        src_dataset = KeyDataset(apo_dataset, "atoms")
-        len_dataset = LengthDataset(src_dataset)
-        src_dataset = TokenizeDataset(
-            src_dataset, self.dictionary, max_seq_len=self.args.max_seq_len
-        )
-        coord_dataset = KeyDataset(apo_dataset, "coordinates")
-        src_dataset = PrependAndAppend(
-            src_dataset, self.dictionary.bos(), self.dictionary.eos()
-        )
-        edge_type = EdgeTypeDataset(src_dataset, len(self.dictionary))
-        coord_dataset = FromNumpyDataset(coord_dataset)
-        distance_dataset = DistanceDataset(coord_dataset)
-        coord_dataset = PrependAndAppend(coord_dataset, 0.0, 0.0)
-        distance_dataset = PrependAndAppend2DDataset(distance_dataset, 0.0)
-
-
-        nest_dataset = NestedDictionaryDataset(
+        net_input, len_dataset = self._build_mol_net_input(dataset, atoms, coords)
+        return NestedDictionaryDataset(
             {
-                "net_input": {
-                    "mol_src_tokens": RightPadDataset(
-                        src_dataset,
-                        pad_idx=self.dictionary.pad(),
-                    ),
-                    "mol_src_distance": RightPadDataset2D(
-                        distance_dataset,
-                        pad_idx=0,
-                    ),
-                    "mol_src_edge_type": RightPadDataset2D(
-                        edge_type,
-                        pad_idx=0,
-                    ),
-                },
+                "net_input": net_input,
                 "smi_name": RawArrayDataset(smi_dataset),
-                "target":  RawArrayDataset(label_dataset),
+                "target": RawArrayDataset(label_dataset),
                 "mol_len": RawArrayDataset(len_dataset),
             },
         )
-        return nest_dataset
-    
 
-    def load_mols_dataset_new(self, data_path,atoms,coords, **kwargs):
-        #atom_key = 'atoms'
-        #atom_key = 'atom_types'
 
-        """Load a given dataset split.
-        'smi','pocket','atoms','coordinates','pocket_atoms','pocket_coordinates','holo_coordinates','holo_pocket_coordinates','scaffold'
-        Args:
-            split (str): name of the data scoure (e.g., bppp)
+    def load_mols_dataset_dtwg(self, data_path, atoms, coords, dataset_type=1, **kwargs):
+        """Load a chunked (LMDBDatasetV2) or plain molecule dataset for screening.
+
+        dataset_type==2 selects the V2 chunked reader (supports start/end slicing
+        over the 'success' split); anything else falls back to a plain LMDBDataset.
         """
-
- 
-        dataset = LMDBDataset(data_path)
-        subset_dataset = KeyDataset(dataset, "subset")
-        id_dataset = KeyDataset(dataset, "IDs")
-        smi_dataset = KeyDataset(dataset, "smi")
-        name_dataset = KeyDataset(dataset, "name")
-        dataset = AffinityMolDataset(
-            dataset,
-            self.args.seed,
-            atoms,
-            coords,
-            False,
-        )
-        
-        
-
-        def PrependAndAppend(dataset, pre_token, app_token):
-            dataset = PrependTokenDataset(dataset, pre_token)
-            return AppendTokenDataset(dataset, app_token)
-
-
-
-        dataset = RemoveHydrogenDataset(dataset, "atoms", "coordinates", True, True)
-
-
-        apo_dataset = NormalizeDataset(dataset, "coordinates")
-
-        src_dataset = KeyDataset(apo_dataset, "atoms")
-        len_dataset = LengthDataset(src_dataset)
-        src_dataset = TokenizeDataset(
-            src_dataset, self.dictionary, max_seq_len=self.args.max_seq_len
-        )
-        coord_dataset = KeyDataset(apo_dataset, "coordinates")
-        src_dataset = PrependAndAppend(
-            src_dataset, self.dictionary.bos(), self.dictionary.eos()
-        )
-        edge_type = EdgeTypeDataset(src_dataset, len(self.dictionary))
-        coord_dataset = FromNumpyDataset(coord_dataset)
-        distance_dataset = DistanceDataset(coord_dataset)
-        coord_dataset = PrependAndAppend(coord_dataset, 0.0, 0.0)
-        distance_dataset = PrependAndAppend2DDataset(distance_dataset, 0.0)
-
-
-        nest_dataset = NestedDictionaryDataset(
-            {
-                "net_input": {
-                    "mol_src_tokens": RightPadDataset(
-                        src_dataset,
-                        pad_idx=self.dictionary.pad(),
-                    ),
-                    "mol_src_distance": RightPadDataset2D(
-                        distance_dataset,
-                        pad_idx=0,
-                    ),
-                    "mol_src_edge_type": RightPadDataset2D(
-                        edge_type,
-                        pad_idx=0,
-                    ),
-                },
-                "smi_name": RawArrayDataset(smi_dataset),
-                #"target":  RawArrayDataset(label_dataset),
-                "mol_len": RawArrayDataset(len_dataset),
-                #"key": RawArrayDataset(key_dataset),
-                "id": RawArrayDataset(id_dataset),
-                "subset": RawArrayDataset(subset_dataset),
-            },
-        )
-        return nest_dataset
-
-    def load_mols_dataset_dtwg(self, data_path,atoms,coords,dataset_type=1, **kwargs):
-        #atom_key = 'atoms'
-        #atom_key = 'atom_types'
-
-        """Load a given dataset split.
-        'smi','pocket','atoms','coordinates','pocket_atoms','pocket_coordinates','holo_coordinates','holo_pocket_coordinates','scaffold'
-        Args:
-            split (str): name of the data scoure (e.g., bppp)
-        """
-
         if dataset_type == 2:
             dataset = LMDBDatasetV2(data_path)
-            keys = dataset.get_split("success")
-            keys = list(sorted(list(set(keys))))
+            keys = list(sorted(set(dataset.get_split("success"))))
             start = kwargs.get("start", 0)
             end = kwargs.get("end")
             if end is None:
@@ -501,144 +393,35 @@ class DrugCLIP(UnicoreTask):
             logger.info("chunk dataset, start: {}, end: {}".format(start, end))
             dataset.set_split("chunk", keys[start:end], deduplicate=False, temporary=True)
             dataset.set_default_split("chunk")
-            # keydataset = LMDBKeyDataset(data_path)
-            # keydataset.set_split("chunk", keys[start:end], deduplicate=False, temporary=True)
-            # keydataset.set_default_split("chunk")
         else:
             if kwargs.get("start", 0) != 0 or kwargs.get("end", None) is not None:
-                logger.info("chuck is not supported when using default lmdb, ignore start and end")
+                logger.info("chunk is not supported when using default lmdb, ignore start and end")
             dataset = LMDBDataset(data_path)
-            # keydataset = KeyDataset(dataset, "smiles")
-        
-        dataset = AffinityMolDataset(
-            dataset,
-            self.args.seed,
-            atoms,
-            coords,
-            False,
-        )
 
-        # smi_dataset = KeyDataset(dataset, "smi")
-        
-        
-
-        def PrependAndAppend(dataset, pre_token, app_token):
-            dataset = PrependTokenDataset(dataset, pre_token)
-            return AppendTokenDataset(dataset, app_token)
-
-
-
-        dataset = RemoveHydrogenDataset(dataset, "atoms", "coordinates", True, True)
-
-
-        apo_dataset = NormalizeDataset(dataset, "coordinates")
-
-        src_dataset = KeyDataset(apo_dataset, "atoms")
-        len_dataset = LengthDataset(src_dataset)
-        src_dataset = TokenizeDataset(
-            src_dataset, self.dictionary, max_seq_len=self.args.max_seq_len
-        )
-        coord_dataset = KeyDataset(apo_dataset, "coordinates")
-        src_dataset = PrependAndAppend(
-            src_dataset, self.dictionary.bos(), self.dictionary.eos()
-        )
-        edge_type = EdgeTypeDataset(src_dataset, len(self.dictionary))
-        coord_dataset = FromNumpyDataset(coord_dataset)
-        distance_dataset = DistanceDataset(coord_dataset)
-        coord_dataset = PrependAndAppend(coord_dataset, 0.0, 0.0)
-        distance_dataset = PrependAndAppend2DDataset(distance_dataset, 0.0)
-
-
-        nest_dataset = {
-            "net_input": {
-                "mol_src_tokens": RightPadDataset(
-                    src_dataset,
-                    pad_idx=self.dictionary.pad(),
-                ),
-                "mol_src_distance": RightPadDataset2D(
-                    distance_dataset,
-                    pad_idx=0,
-                ),
-                "mol_src_edge_type": RightPadDataset2D(
-                    edge_type,
-                    pad_idx=0,
-                ),
-            },
-            # "smi_name": RawArrayDataset(smi_dataset),
-            #"target":  RawArrayDataset(label_dataset),
-            "mol_len": RawArrayDataset(len_dataset),
-        }
-        # if keydataset is not None:
-        #     nest_dataset["key"] = RawArrayDataset(keydataset)
-        return NestedDictionaryDataset(nest_dataset)
-
-
-    def load_retrieval_mols_dataset(self, data_path,atoms,coords, **kwargs):
- 
-        dataset = LMDBDataset(data_path)
-        dataset = AffinityMolDataset(
-            dataset,
-            self.args.seed,
-            atoms,
-            coords,
-            False,
-        )
-        
-        smi_dataset = KeyDataset(dataset, "name")
-
-        def PrependAndAppend(dataset, pre_token, app_token):
-            dataset = PrependTokenDataset(dataset, pre_token)
-            return AppendTokenDataset(dataset, app_token)
-
-
-
-        dataset = RemoveHydrogenDataset(dataset, "atoms", "coordinates", True, True)
-
-
-        apo_dataset = NormalizeDataset(dataset, "coordinates")
-
-        src_dataset = KeyDataset(apo_dataset, "atoms")
-        len_dataset = LengthDataset(src_dataset)
-        src_dataset = TokenizeDataset(
-            src_dataset, self.dictionary, max_seq_len=self.args.max_seq_len
-        )
-        coord_dataset = KeyDataset(apo_dataset, "coordinates")
-        src_dataset = PrependAndAppend(
-            src_dataset, self.dictionary.bos(), self.dictionary.eos()
-        )
-        edge_type = EdgeTypeDataset(src_dataset, len(self.dictionary))
-        coord_dataset = FromNumpyDataset(coord_dataset)
-        distance_dataset = DistanceDataset(coord_dataset)
-        coord_dataset = PrependAndAppend(coord_dataset, 0.0, 0.0)
-        distance_dataset = PrependAndAppend2DDataset(distance_dataset, 0.0)
-
-
-        nest_dataset = NestedDictionaryDataset(
+        net_input, len_dataset = self._build_mol_net_input(dataset, atoms, coords)
+        return NestedDictionaryDataset(
             {
-                "net_input": {
-                    "mol_src_tokens": RightPadDataset(
-                        src_dataset,
-                        pad_idx=self.dictionary.pad(),
-                    ),
-                    "mol_src_distance": RightPadDataset2D(
-                        distance_dataset,
-                        pad_idx=0,
-                    ),
-                    "mol_src_edge_type": RightPadDataset2D(
-                        edge_type,
-                        pad_idx=0,
-                    ),
-                },
+                "net_input": net_input,
+                "mol_len": RawArrayDataset(len_dataset),
+            }
+        )
+
+    def load_retrieval_mols_dataset(self, data_path, atoms, coords, **kwargs):
+        dataset = LMDBDataset(data_path)
+        smi_dataset = KeyDataset(dataset, "name")
+        net_input, len_dataset = self._build_mol_net_input(dataset, atoms, coords)
+        return NestedDictionaryDataset(
+            {
+                "net_input": net_input,
                 "smi_name": RawArrayDataset(smi_dataset),
                 "mol_len": RawArrayDataset(len_dataset),
             },
         )
-        return nest_dataset
+
 
     def load_pockets_dataset(self, data_path, **kwargs):
 
         dataset = LMDBDataset(data_path)
- 
         dataset = AffinityPocketDataset(
             dataset,
             self.args.seed,
@@ -648,10 +431,6 @@ class DrugCLIP(UnicoreTask):
             "pocket"
         )
         poc_dataset = KeyDataset(dataset, "pocket")
-
-        def PrependAndAppend(dataset, pre_token, app_token):
-            dataset = PrependTokenDataset(dataset, pre_token)
-            return AppendTokenDataset(dataset, app_token)
 
         dataset = RemoveHydrogenPocketDataset(
             dataset,
@@ -667,62 +446,16 @@ class DrugCLIP(UnicoreTask):
             "pocket_coordinates",
             self.args.max_pocket_atoms,
         )
-
-
-
-
         apo_dataset = NormalizeDataset(dataset, "pocket_coordinates")
 
-
-
-        src_pocket_dataset = KeyDataset(apo_dataset, "pocket_atoms")
-        len_dataset = LengthDataset(src_pocket_dataset)
-        src_pocket_dataset = TokenizeDataset(
-            src_pocket_dataset,
-            self.pocket_dictionary,
-            max_seq_len=self.args.max_seq_len,
-        )
-        coord_pocket_dataset = KeyDataset(apo_dataset, "pocket_coordinates")
-        src_pocket_dataset = PrependAndAppend(
-            src_pocket_dataset,
-            self.pocket_dictionary.bos(),
-            self.pocket_dictionary.eos(),
-        )
-        pocket_edge_type = EdgeTypeDataset(
-            src_pocket_dataset, len(self.pocket_dictionary)
-        )
-        coord_pocket_dataset = FromNumpyDataset(coord_pocket_dataset)
-        distance_pocket_dataset = DistanceDataset(coord_pocket_dataset)
-        coord_pocket_dataset = PrependAndAppend(coord_pocket_dataset, 0.0, 0.0)
-        distance_pocket_dataset = PrependAndAppend2DDataset(
-            distance_pocket_dataset, 0.0
-        )
-
-        nest_dataset = NestedDictionaryDataset(
+        net_input, len_dataset = self._build_pocket_net_input(apo_dataset)
+        return NestedDictionaryDataset(
             {
-                "net_input": {
-                    "pocket_src_tokens": RightPadDataset(
-                        src_pocket_dataset,
-                        pad_idx=self.pocket_dictionary.pad(),
-                    ),
-                    "pocket_src_distance": RightPadDataset2D(
-                        distance_pocket_dataset,
-                        pad_idx=0,
-                    ),
-                    "pocket_src_edge_type": RightPadDataset2D(
-                        pocket_edge_type,
-                        pad_idx=0,
-                    ),
-                    "pocket_src_coord": RightPadDatasetCoord(
-                        coord_pocket_dataset,
-                        pad_idx=0,
-                    ),
-                },
+                "net_input": net_input,
                 "pocket_name": RawArrayDataset(poc_dataset),
                 "pocket_len": RawArrayDataset(len_dataset),
             },
         )
-        return nest_dataset
 
     
 
@@ -844,7 +577,7 @@ class DrugCLIP(UnicoreTask):
 
         # 6 folds
 
-        ckpts = [f"./data/model_weights/6_folds/fold_{i}.pt" for i in range(6)]
+        ckpts, _ = _FOLD_CONFIGS["6_folds"]
 
         res_list = []
         for fold, ckpt in enumerate(ckpts[:6]):
@@ -1065,7 +798,7 @@ class DrugCLIP(UnicoreTask):
 
         # 6 folds
 
-        ckpts = [f"./data/model_weights/6_folds/fold_{i}.pt" for i in range(6)]
+        ckpts, _ = _FOLD_CONFIGS["6_folds"]
 
 
 
@@ -1246,7 +979,7 @@ class DrugCLIP(UnicoreTask):
 
         # 6 folds
         
-        ckpts = [f"./data/model_weights/6_folds/fold_{i}.pt" for i in range(6)]
+        ckpts, _ = _FOLD_CONFIGS["6_folds"]
 
         if dataset_type is None:
             dataset_type = 2 if os.path.isdir(mol_path) else 1
@@ -1358,7 +1091,7 @@ class DrugCLIP(UnicoreTask):
     
     def encode_pockets_multi_folds(self, model, pocket_dir, pocket_path, **kwargs):
         # 6 folds
-        ckpts = [f"./data/model_weights/6_folds/fold_{i}.pt" for i in range(6)]
+        ckpts, _ = _FOLD_CONFIGS["6_folds"]
 
 
         #ckpts = ckpts[:1]
@@ -1402,22 +1135,9 @@ class DrugCLIP(UnicoreTask):
     def retrieval_multi_folds(self, model, pocket_path, save_path, mol_data_path, fold_version, use_cache=True, use_cuda=True, **kwargs):
         
 
-        if fold_version=="6_folds":
-            # 6 folds
-            ckpts = [f"./data/model_weights/6_folds/fold_{i}.pt" for i in range(6)]
-
-            caches = [f"./data/encoded_mol_embs/6_folds/fold{i}.pkl" for i in range(6)]
-        
-        elif fold_version=="8_folds":
-
-            ckpts = [f"./data/model_weights/8_folds/fold_{i}.pt" for i in range(8)]
-
-            caches = [f"./data/encoded_mol_embs/8_folds/fold{i}.pkl" for i in range(8)]
-        elif fold_version=="6_folds_filtered":
-            ckpts = [f"./data/model_weights/6_folds/fold_{i}.pt" for i in range(6)]
-
-            caches = [f"./data/encoded_mol_embs/6_folds_filtered/fold{i}.pkl" for i in range(6)]
-
+        if fold_version not in _FOLD_CONFIGS:
+            raise ValueError(f"Unknown fold_version: {fold_version!r}. Choose from {list(_FOLD_CONFIGS)}")
+        ckpts, caches = _FOLD_CONFIGS[fold_version]
 
         res_list = []
 
