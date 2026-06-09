@@ -1,12 +1,9 @@
 # Copyright (c) DP Technology.
 # This source code is licensed under the MIT license found in the
 # LICENSE file in the root directory of this source tree.
-from IPython import embed as debug_embedded
+import argparse
 import logging
 import os
-from collections.abc import Iterable
-from sklearn.metrics import roc_auc_score
-from xmlrpc.client import Boolean
 import numpy as np
 import torch
 import pickle
@@ -34,6 +31,17 @@ import h5py
 logger = logging.getLogger(__name__)
 
 
+def str2bool(v):
+    if isinstance(v, bool):
+        return v
+    if v.lower() in ("yes", "true", "t", "1"):
+        return True
+    if v.lower() in ("no", "false", "f", "0"):
+        return False
+    raise argparse.ArgumentTypeError("Boolean value expected.")
+
+
+
 def re_new(y_true, y_score, ratio):
     fp = 0
     tp = 0
@@ -54,27 +62,14 @@ def re_new(y_true, y_score, ratio):
 
 def calc_re(y_true, y_score, ratio_list):
     fpr, tpr, thresholds = roc_curve(y_true, y_score, pos_label=1)
-    #print(fpr, tpr)
     res = {}
     res2 = {}
     total_active_compounds = sum(y_true)
     total_compounds = len(y_true)
 
-    # for ratio in ratio_list:
-    #     for i, t in enumerate(fpr):
-    #         if t > ratio:
-    #             #print(fpr[i], tpr[i])
-    #             if fpr[i-1]==0:
-    #                 res[str(ratio)]=tpr[i]/fpr[i]
-    #             else:
-    #                 res[str(ratio)]=tpr[i-1]/fpr[i-1]
-    #             break
-    
     for ratio in ratio_list:
         res2[str(ratio)] = re_new(y_true, y_score, ratio)
 
-    #print(res)
-    #print(res2)
     return res2
 
 def cal_metrics(y_true, y_score, alpha):
@@ -154,7 +149,7 @@ class DrugCLIP(UnicoreTask):
         parser.add_argument(
             "--test-model",
             default=False,
-            type=Boolean,
+            type=str2bool,
             help="whether test model",
         )
         parser.add_argument("--reg", action="store_true", help="regression task")
@@ -792,6 +787,47 @@ class DrugCLIP(UnicoreTask):
             loss, sample_size, logging_output = loss(model, sample)
         return loss, sample_size, logging_output
 
+    @staticmethod
+    def _encode_mol_batch(model, net_input):
+        """Compute normalized molecule embeddings for one batch (numpy, fp32-on-cpu)."""
+        dist = net_input["mol_src_distance"]
+        et = net_input["mol_src_edge_type"]
+        st = net_input["mol_src_tokens"]
+        padding_mask = st.eq(model.mol_model.padding_idx)
+        x = model.mol_model.embed_tokens(st)
+        n_node = dist.size(-1)
+        gbf_result = model.mol_model.gbf_proj(model.mol_model.gbf(dist, et))
+        graph_attn_bias = (
+            gbf_result.permute(0, 3, 1, 2).contiguous().view(-1, n_node, n_node)
+        )
+        outputs = model.mol_model.encoder(
+            x, padding_mask=padding_mask, attn_mask=graph_attn_bias
+        )
+        emb = model.mol_project(outputs[0][:, 0, :])
+        emb = emb / emb.norm(dim=-1, keepdim=True)
+        return emb.detach().cpu().numpy()
+
+    @staticmethod
+    def _encode_pocket_batch(model, net_input):
+        """Compute normalized pocket embeddings for one batch (numpy, fp32-on-cpu)."""
+        dist = net_input["pocket_src_distance"]
+        et = net_input["pocket_src_edge_type"]
+        st = net_input["pocket_src_tokens"]
+        padding_mask = st.eq(model.pocket_model.padding_idx)
+        x = model.pocket_model.embed_tokens(st)
+        n_node = dist.size(-1)
+        gbf_result = model.pocket_model.gbf_proj(model.pocket_model.gbf(dist, et))
+        graph_attn_bias = (
+            gbf_result.permute(0, 3, 1, 2).contiguous().view(-1, n_node, n_node)
+        )
+        outputs = model.pocket_model.encoder(
+            x, padding_mask=padding_mask, attn_mask=graph_attn_bias
+        )
+        emb = model.pocket_project(outputs[0][:, 0, :])
+        emb = emb / emb.norm(dim=-1, keepdim=True)
+        return emb.detach().cpu().numpy()
+
+
     def test_pcba_target_ensemble(self, target, model, **kwargs):
 
 
@@ -799,7 +835,6 @@ class DrugCLIP(UnicoreTask):
         mol_dataset = self.load_mols_dataset(data_path, "atoms", "coordinates")
         num_data = len(mol_dataset)
         bsz=512
-        print(num_data//bsz)
         
         
         # generate mol data
@@ -813,8 +848,6 @@ class DrugCLIP(UnicoreTask):
 
         res_list = []
         for fold, ckpt in enumerate(ckpts[:6]):
-            # random generate mol_resps with size (num_data, 128)
-            mol_reps = np.random.randn(num_data, 128)
             state = checkpoint_utils.load_checkpoint_to_cpu(ckpt)
             model.load_state_dict(state["model"], strict=False)
             mol_reps = []
@@ -822,70 +855,26 @@ class DrugCLIP(UnicoreTask):
             labels = []
             for _, sample in enumerate(tqdm(mol_data)):
                 sample = unicore.utils.move_to_cuda(sample)
-                dist = sample["net_input"]["mol_src_distance"]
-                et = sample["net_input"]["mol_src_edge_type"]
-                st = sample["net_input"]["mol_src_tokens"]
-                mol_padding_mask = st.eq(model.mol_model.padding_idx)
-                mol_x = model.mol_model.embed_tokens(st)
-                n_node = dist.size(-1)
-                gbf_feature = model.mol_model.gbf(dist, et)
-                gbf_result = model.mol_model.gbf_proj(gbf_feature)
-                graph_attn_bias = gbf_result
-                graph_attn_bias = graph_attn_bias.permute(0, 3, 1, 2).contiguous()
-                graph_attn_bias = graph_attn_bias.view(-1, n_node, n_node)
-                mol_outputs = model.mol_model.encoder(
-                    mol_x, padding_mask=mol_padding_mask, attn_mask=graph_attn_bias
-                )
-                mol_encoder_rep = mol_outputs[0][:,0,:]
-                mol_emb = mol_encoder_rep
-                mol_emb = model.mol_project(mol_encoder_rep)
-                mol_emb = mol_emb / mol_emb.norm(dim=-1, keepdim=True)
-                #print(mol_emb.dtype)
-                mol_emb = mol_emb.detach().cpu().numpy()
-                #print(mol_emb.dtype)
+                mol_emb = self._encode_mol_batch(model, sample["net_input"])
                 mol_reps.append(mol_emb)
                 mol_names.extend(sample["smi_name"])
                 labels.extend(sample["target"].detach().cpu().numpy())
             mol_reps = np.concatenate(mol_reps, axis=0)
             labels = np.array(labels, dtype=np.int32)
-            # labels = np.zeros(num_data)
             # generate pocket data
             data_path = "./data/lit_pcba/" + target + "/pockets.lmdb"
             if not os.path.exists(data_path):
                 return None
             pocket_dataset = self.load_pockets_dataset(data_path)
             pocket_data = torch.utils.data.DataLoader(pocket_dataset, batch_size=bsz, collate_fn=pocket_dataset.collater)
-            #pocket_reps = np.random.randn(len(pocket_data), 128)
             pocket_reps = []
 
             for _, sample in enumerate(tqdm(pocket_data)):
                 sample = unicore.utils.move_to_cuda(sample)
-                dist = sample["net_input"]["pocket_src_distance"]
-                et = sample["net_input"]["pocket_src_edge_type"]
-                st = sample["net_input"]["pocket_src_tokens"]
-                pocket_padding_mask = st.eq(model.pocket_model.padding_idx)
-                pocket_x = model.pocket_model.embed_tokens(st)
-                n_node = dist.size(-1)
-                gbf_feature = model.pocket_model.gbf(dist, et)
-                gbf_result = model.pocket_model.gbf_proj(gbf_feature)
-                graph_attn_bias = gbf_result
-                graph_attn_bias = graph_attn_bias.permute(0, 3, 1, 2).contiguous()
-                graph_attn_bias = graph_attn_bias.view(-1, n_node, n_node)
-                pocket_outputs = model.pocket_model.encoder(
-                    pocket_x, padding_mask=pocket_padding_mask, attn_mask=graph_attn_bias
-                )
-                pocket_encoder_rep = pocket_outputs[0][:,0,:]
-                #pocket_emb = pocket_encoder_rep
-                pocket_emb = model.pocket_project(pocket_encoder_rep)
-                pocket_emb = pocket_emb / pocket_emb.norm(dim=-1, keepdim=True)
-                pocket_emb = pocket_emb.detach().cpu().numpy()
+                pocket_emb = self._encode_pocket_batch(model, sample["net_input"])
                 pocket_reps.append(pocket_emb)
             pocket_reps = np.concatenate(pocket_reps, axis=0)
-            print(pocket_reps.shape)
             res = pocket_reps @ mol_reps.T
-            print(res.shape)
-            #res = np.expand_dims(res, axis=0)
-            #print(res.shape)
             res_list.append(res)
         
         
@@ -896,8 +885,6 @@ class DrugCLIP(UnicoreTask):
         res = np.array(res_list)
 
         res = np.mean(res, axis=0)
-       
-        print(res.shape)
 
         medians = np.median(res, axis=1, keepdims=True)
             # get mad for each row
@@ -942,26 +929,7 @@ class DrugCLIP(UnicoreTask):
         mol_data = torch.utils.data.DataLoader(mol_dataset, batch_size=bsz, collate_fn=mol_dataset.collater)
         for _, sample in enumerate(tqdm(mol_data)):
             sample = unicore.utils.move_to_cuda(sample)
-            dist = sample["net_input"]["mol_src_distance"]
-            et = sample["net_input"]["mol_src_edge_type"]
-            st = sample["net_input"]["mol_src_tokens"]
-            mol_padding_mask = st.eq(model.mol_model.padding_idx)
-            mol_x = model.mol_model.embed_tokens(st)
-            
-            n_node = dist.size(-1)
-            gbf_feature = model.mol_model.gbf(dist, et)
-
-            gbf_result = model.mol_model.gbf_proj(gbf_feature)
-            graph_attn_bias = gbf_result
-            graph_attn_bias = graph_attn_bias.permute(0, 3, 1, 2).contiguous()
-            graph_attn_bias = graph_attn_bias.view(-1, n_node, n_node)
-            mol_outputs = model.mol_model.encoder(
-                mol_x, padding_mask=mol_padding_mask, attn_mask=graph_attn_bias
-            )
-            mol_encoder_rep = mol_outputs[0][:,0,:]
-            mol_emb = model.mol_project(mol_encoder_rep)
-            mol_emb = mol_emb / mol_emb.norm(dim=1, keepdim=True)
-            mol_emb = mol_emb.detach().cpu().numpy()
+            mol_emb = self._encode_mol_batch(model, sample["net_input"])
             mol_reps.append(mol_emb)
             mol_names.extend(sample["smi_name"])
             labels.extend(sample["target"].detach().cpu().numpy())
@@ -975,36 +943,12 @@ class DrugCLIP(UnicoreTask):
 
         for _, sample in enumerate(tqdm(pocket_data)):
             sample = unicore.utils.move_to_cuda(sample)
-            dist = sample["net_input"]["pocket_src_distance"]
-            et = sample["net_input"]["pocket_src_edge_type"]
-            st = sample["net_input"]["pocket_src_tokens"]
-            pocket_padding_mask = st.eq(model.pocket_model.padding_idx)
-            pocket_x = model.pocket_model.embed_tokens(st)
-            n_node = dist.size(-1)
-            gbf_feature = model.pocket_model.gbf(dist, et)
-            gbf_result = model.pocket_model.gbf_proj(gbf_feature)
-            graph_attn_bias = gbf_result
-            graph_attn_bias = graph_attn_bias.permute(0, 3, 1, 2).contiguous()
-            graph_attn_bias = graph_attn_bias.view(-1, n_node, n_node)
-            pocket_outputs = model.pocket_model.encoder(
-                pocket_x, padding_mask=pocket_padding_mask, attn_mask=graph_attn_bias
-            )
-            pocket_encoder_rep = pocket_outputs[0][:,0,:]
-            pocket_emb = model.pocket_project(pocket_encoder_rep)
-            pocket_emb = pocket_emb / pocket_emb.norm(dim=1, keepdim=True)
-            pocket_emb = pocket_emb.detach().cpu().numpy()
-            pocket_names = sample["pocket_name"]
+            pocket_emb = self._encode_pocket_batch(model, sample["net_input"])
             pocket_reps.append(pocket_emb)
         pocket_reps = np.concatenate(pocket_reps, axis=0)
 
         res = pocket_reps @ mol_reps.T
 
-        # medians = np.median(res, axis=1, keepdims=True)
-        #     # get mad for each row
-        # mads = np.median(np.abs(res - medians), axis=1, keepdims=True)
-        # # get z score
-        # res = 0.6745 * (res - medians) / (mads + 1e-6)
-        
         res_single = res.max(axis=0)
         auc, bedroc, ef_list, re_list = cal_metrics(labels, res_single, 80.5)
 
@@ -1068,7 +1012,6 @@ class DrugCLIP(UnicoreTask):
         mol_dataset = self.load_mols_dataset(data_path, "atoms", "coordinates")
         num_data = len(mol_dataset)
         bsz=64
-        print(num_data//bsz)
         mol_reps = []
         mol_names = []
         labels = []
@@ -1078,87 +1021,30 @@ class DrugCLIP(UnicoreTask):
         mol_data = torch.utils.data.DataLoader(mol_dataset, batch_size=bsz, collate_fn=mol_dataset.collater)
         for _, sample in enumerate(tqdm(mol_data)):
             sample = unicore.utils.move_to_cuda(sample)
-            dist = sample["net_input"]["mol_src_distance"]
-            et = sample["net_input"]["mol_src_edge_type"]
-            st = sample["net_input"]["mol_src_tokens"]
-            mol_padding_mask = st.eq(model.mol_model.padding_idx)
-            mol_x = model.mol_model.embed_tokens(st)
-            n_node = dist.size(-1)
-            gbf_feature = model.mol_model.gbf(dist, et)
-            gbf_result = model.mol_model.gbf_proj(gbf_feature)
-            graph_attn_bias = gbf_result
-            graph_attn_bias = graph_attn_bias.permute(0, 3, 1, 2).contiguous()
-            graph_attn_bias = graph_attn_bias.view(-1, n_node, n_node)
-            mol_outputs = model.mol_model.encoder(
-                mol_x, padding_mask=mol_padding_mask, attn_mask=graph_attn_bias
-            )
-            mol_encoder_rep = mol_outputs[0][:,0,:]
-            mol_emb = mol_encoder_rep
-            mol_emb = model.mol_project(mol_encoder_rep)
-            mol_emb = mol_emb / mol_emb.norm(dim=-1, keepdim=True)
-            #print(mol_emb.dtype)
-            mol_emb = mol_emb.detach().cpu().numpy()
-            #print(mol_emb.dtype)
-            mol_reps.append(mol_emb)
+            mol_reps.append(self._encode_mol_batch(model, sample["net_input"]))
             mol_names.extend(sample["smi_name"])
             labels.extend(sample["target"].detach().cpu().numpy())
         mol_reps = np.concatenate(mol_reps, axis=0)
         labels = np.array(labels, dtype=np.int32)
-        # generate pocket data
         data_path = "./data/DUD-E/" + target + "/pocket.lmdb"
-        #data_path = f"/drug/schrodinger_DUD-E/{target}/Holo_RealPocket_GenPack/pocket.lmdb"
         if not os.path.exists(data_path):
             return None
         pocket_dataset = self.load_pockets_dataset(data_path)
         pocket_data = torch.utils.data.DataLoader(pocket_dataset, batch_size=bsz, collate_fn=pocket_dataset.collater)
         pocket_reps = []
-
         for _, sample in enumerate(tqdm(pocket_data)):
             sample = unicore.utils.move_to_cuda(sample)
-            dist = sample["net_input"]["pocket_src_distance"]
-            et = sample["net_input"]["pocket_src_edge_type"]
-            st = sample["net_input"]["pocket_src_tokens"]
-            pocket_padding_mask = st.eq(model.pocket_model.padding_idx)
-            pocket_x = model.pocket_model.embed_tokens(st)
-            n_node = dist.size(-1)
-            gbf_feature = model.pocket_model.gbf(dist, et)
-            gbf_result = model.pocket_model.gbf_proj(gbf_feature)
-            graph_attn_bias = gbf_result
-            graph_attn_bias = graph_attn_bias.permute(0, 3, 1, 2).contiguous()
-            graph_attn_bias = graph_attn_bias.view(-1, n_node, n_node)
-            pocket_outputs = model.pocket_model.encoder(
-                pocket_x, padding_mask=pocket_padding_mask, attn_mask=graph_attn_bias
-            )
-            pocket_encoder_rep = pocket_outputs[0][:,0,:]
-            #pocket_emb = pocket_encoder_rep
-            pocket_emb = model.pocket_project(pocket_encoder_rep)
-            pocket_emb = pocket_emb / pocket_emb.norm(dim=-1, keepdim=True)
-            pocket_emb = pocket_emb.detach().cpu().numpy()
-            pocket_reps.append(pocket_emb)
+            pocket_reps.append(self._encode_pocket_batch(model, sample["net_input"]))
         pocket_reps = np.concatenate(pocket_reps, axis=0)
-        print(pocket_reps.shape)
         res = pocket_reps @ mol_reps.T
 
         medians = np.median(res, axis=1, keepdims=True)
-            # get mad for each row
         mads = np.median(np.abs(res - medians), axis=1, keepdims=True)
-        # get z score
         res = 0.6745 * (res - medians) / (mads + 1e-6)
-        # get max for each column
-        #res_max = np.max(res_cur, axis=0)
-        #res = np.max(res, axis=0)
-
         res_single = res.max(axis=0)
 
         auc, bedroc, ef_list, re_list = cal_metrics(labels, res_single, 80.5)
-        
-        
-        print(target)
-
-        print(np.sum(labels), len(labels)-np.sum(labels))
-
-        print(auc, bedroc)
-
+        logger.info(f"{target}: auc={auc:.4f} bedroc={bedroc:.4f}")
         return auc, bedroc, ef_list, re_list, res_single, labels
 
     def test_dude_target_ensemble(self, target, model, **kwargs):
@@ -1171,7 +1057,6 @@ class DrugCLIP(UnicoreTask):
         mol_dataset = self.load_mols_dataset(data_path, "atoms", "coordinates")
         num_data = len(mol_dataset)
         bsz=512
-        print(num_data//bsz)
         
         
         # generate mol data
@@ -1187,7 +1072,6 @@ class DrugCLIP(UnicoreTask):
 
         res_list = []
         for fold, ckpt in enumerate(ckpts):
-
             state = checkpoint_utils.load_checkpoint_to_cpu(ckpt)
             model.load_state_dict(state["model"], strict=False)
             mol_reps = []
@@ -1195,99 +1079,31 @@ class DrugCLIP(UnicoreTask):
             labels = []
             for _, sample in enumerate(tqdm(mol_data)):
                 sample = unicore.utils.move_to_cuda(sample)
-                dist = sample["net_input"]["mol_src_distance"]
-                et = sample["net_input"]["mol_src_edge_type"]
-                st = sample["net_input"]["mol_src_tokens"]
-                mol_padding_mask = st.eq(model.mol_model.padding_idx)
-                mol_x = model.mol_model.embed_tokens(st)
-                n_node = dist.size(-1)
-                gbf_feature = model.mol_model.gbf(dist, et)
-                gbf_result = model.mol_model.gbf_proj(gbf_feature)
-                graph_attn_bias = gbf_result
-                graph_attn_bias = graph_attn_bias.permute(0, 3, 1, 2).contiguous()
-                graph_attn_bias = graph_attn_bias.view(-1, n_node, n_node)
-                mol_outputs = model.mol_model.encoder(
-                    mol_x, padding_mask=mol_padding_mask, attn_mask=graph_attn_bias
-                )
-                mol_encoder_rep = mol_outputs[0][:,0,:]
-                mol_emb = mol_encoder_rep
-                mol_emb = model.mol_project(mol_encoder_rep)
-                mol_emb = mol_emb / mol_emb.norm(dim=-1, keepdim=True)
-                #print(mol_emb.dtype)
-                mol_emb = mol_emb.detach().cpu().numpy()
-                #print(mol_emb.dtype)
-                mol_reps.append(mol_emb)
+                mol_reps.append(self._encode_mol_batch(model, sample["net_input"]))
                 mol_names.extend(sample["smi_name"])
                 labels.extend(sample["target"].detach().cpu().numpy())
             mol_reps = np.concatenate(mol_reps, axis=0)
             labels = np.array(labels, dtype=np.int32)
-            # generate pocket data
-            #data_path = "./data/DUD-E/" + target + "/RealProtein_RealPocket/pockets.lmdb"
             data_path = "./data/DUD-E/" + target + "/pocket.lmdb"
             if not os.path.exists(data_path):
                 return None
             pocket_dataset = self.load_pockets_dataset(data_path)
-            pocket_data = torch.utils.data.DataLoader(pocket_dataset, batch_size=bsz, collate_fn=pocket_dataset.collater)
+            pocket_data_fold = torch.utils.data.DataLoader(pocket_dataset, batch_size=bsz, collate_fn=pocket_dataset.collater)
             pocket_reps = []
-
-            for _, sample in enumerate(tqdm(pocket_data)):
+            for _, sample in enumerate(tqdm(pocket_data_fold)):
                 sample = unicore.utils.move_to_cuda(sample)
-                dist = sample["net_input"]["pocket_src_distance"]
-                et = sample["net_input"]["pocket_src_edge_type"]
-                st = sample["net_input"]["pocket_src_tokens"]
-                pocket_padding_mask = st.eq(model.pocket_model.padding_idx)
-                pocket_x = model.pocket_model.embed_tokens(st)
-                n_node = dist.size(-1)
-                gbf_feature = model.pocket_model.gbf(dist, et)
-                gbf_result = model.pocket_model.gbf_proj(gbf_feature)
-                graph_attn_bias = gbf_result
-                graph_attn_bias = graph_attn_bias.permute(0, 3, 1, 2).contiguous()
-                graph_attn_bias = graph_attn_bias.view(-1, n_node, n_node)
-                pocket_outputs = model.pocket_model.encoder(
-                    pocket_x, padding_mask=pocket_padding_mask, attn_mask=graph_attn_bias
-                )
-                pocket_encoder_rep = pocket_outputs[0][:,0,:]
-                #pocket_emb = pocket_encoder_rep
-                pocket_emb = model.pocket_project(pocket_encoder_rep)
-                pocket_emb = pocket_emb / pocket_emb.norm(dim=-1, keepdim=True)
-                pocket_emb = pocket_emb.detach().cpu().numpy()
-                pocket_reps.append(pocket_emb)
+                pocket_reps.append(self._encode_pocket_batch(model, sample["net_input"]))
             pocket_reps = np.concatenate(pocket_reps, axis=0)
-            print(pocket_reps.shape)
-            res = pocket_reps @ mol_reps.T
-            #res_list.append(np.expand_dims(res, axis=0))
-            res_list.append(res)
-        
-        #res = np.concatenate(res_list, axis=0)
+            res_list.append(pocket_reps @ mol_reps.T)
 
-        res = np.array(res_list)
-        print(res.shape)
-        res = res.mean(axis=0)
-
-        print(res.shape)
-
+        res = np.array(res_list).mean(axis=0)
         medians = np.median(res, axis=1, keepdims=True)
-            # get mad for each row
         mads = np.median(np.abs(res - medians), axis=1, keepdims=True)
-        # get z score
         res = 0.6745 * (res - medians) / (mads + 1e-6)
-        # get max for each column
-        #res_max = np.max(res_cur, axis=0)
-        #res = np.max(res, axis=0)
-
         res_single = res.max(axis=0)
 
         auc, bedroc, ef_list, re_list = cal_metrics(labels, res_single, 80.5)
-        
-        
-        print(target)
-
-        print(np.sum(labels), len(labels)-np.sum(labels))
-
-        print("auc", auc)
-        print("bedroc", bedroc)
-        print("ef", ef_list)
-
+        logger.info(f"{target}: auc={auc:.4f} bedroc={bedroc:.4f} ef={ef_list}")
         return auc, bedroc, ef_list, re_list, res_single, labels
     
 
@@ -1318,7 +1134,6 @@ class DrugCLIP(UnicoreTask):
         ef_dic = {}
         bedroc_dic = {}
         for i,target in enumerate(targets):
-            print(i)
             #try:
             use_folds = False
             if use_folds:
@@ -1389,80 +1204,40 @@ class DrugCLIP(UnicoreTask):
         mol_data = torch.utils.data.DataLoader(mol_dataset, batch_size=bsz, collate_fn=mol_dataset.collater)
         for _, sample in enumerate(tqdm(mol_data)):
             sample = unicore.utils.move_to_cuda(sample)
-            dist = sample["net_input"]["mol_src_distance"]
-            et = sample["net_input"]["mol_src_edge_type"]
-            st = sample["net_input"]["mol_src_tokens"]
-            mol_padding_mask = st.eq(model.mol_model.padding_idx)
-            mol_x = model.mol_model.embed_tokens(st)
-            n_node = dist.size(-1)
-            gbf_feature = model.mol_model.gbf(dist, et)
-            gbf_result = model.mol_model.gbf_proj(gbf_feature)
-            graph_attn_bias = gbf_result
-            graph_attn_bias = graph_attn_bias.permute(0, 3, 1, 2).contiguous()
-            graph_attn_bias = graph_attn_bias.view(-1, n_node, n_node)
-            mol_outputs = model.mol_model.encoder(
-                mol_x, padding_mask=mol_padding_mask, attn_mask=graph_attn_bias
-            )
-            mol_encoder_rep = mol_outputs[0][:,0,:]
-            mol_emb = model.mol_project(mol_encoder_rep)
-            mol_emb = mol_emb / mol_emb.norm(dim=-1, keepdim=True)
-            mol_emb = mol_emb.detach().cpu().numpy()
-            mol_reps.append(mol_emb)
+            mol_reps.append(self._encode_mol_batch(model, sample["net_input"]))
             mol_names.extend(sample["smi_name"])
 
         mol_reps = np.concatenate(mol_reps, axis=0)
 
         # save the results
-        
+
         with open(cache_path, "wb") as f:
             pickle.dump([mol_reps, mol_names], f)
 
         return mol_reps, mol_names
-    
+
     def retrieve_mols(self, model, mol_path, pocket_path, emb_dir, k, **kwargs):
- 
-        os.makedirs(emb_dir, exist_ok=True)        
+
+        os.makedirs(emb_dir, exist_ok=True)
         mol_reps, mol_names = self.encode_mols_once(model, mol_path, emb_dir,  "atoms", "coordinates")
-        
+
         pocket_dataset = self.load_pockets_dataset(pocket_path)
         pocket_data = torch.utils.data.DataLoader(pocket_dataset, batch_size=16, collate_fn=pocket_dataset.collater)
         pocket_reps = []
         pocket_names = []
         for _, sample in enumerate(tqdm(pocket_data)):
             sample = unicore.utils.move_to_cuda(sample)
-            dist = sample["net_input"]["pocket_src_distance"]
-            et = sample["net_input"]["pocket_src_edge_type"]
-            st = sample["net_input"]["pocket_src_tokens"]
-            pocket_padding_mask = st.eq(model.pocket_model.padding_idx)
-            pocket_x = model.pocket_model.embed_tokens(st)
-            n_node = dist.size(-1)
-            gbf_feature = model.pocket_model.gbf(dist, et)
-            gbf_result = model.pocket_model.gbf_proj(gbf_feature)
-            graph_attn_bias = gbf_result
-            graph_attn_bias = graph_attn_bias.permute(0, 3, 1, 2).contiguous()
-            graph_attn_bias = graph_attn_bias.view(-1, n_node, n_node)
-            pocket_outputs = model.pocket_model.encoder(
-                pocket_x, padding_mask=pocket_padding_mask, attn_mask=graph_attn_bias
-            )
-            pocket_encoder_rep = pocket_outputs[0][:,0,:]
-            pocket_emb = model.pocket_project(pocket_encoder_rep)
-            pocket_emb = pocket_emb / pocket_emb.norm(dim=-1, keepdim=True)
-            pocket_emb = pocket_emb.detach().cpu().numpy()
-            pocket_reps.append(pocket_emb)
+            pocket_reps.append(self._encode_pocket_batch(model, sample["net_input"]))
             pocket_names.extend(sample["pocket_name"])
         pocket_reps = np.concatenate(pocket_reps, axis=0)
-        
+
         res = pocket_reps @ mol_reps.T
         res = res.max(axis=0)
 
-
         # get top k results
-
-        
         top_k = np.argsort(res)[::-1][:k]
 
         # return names and scores
-        
         return [mol_names[i] for i in top_k], res[top_k]
 
     
@@ -1542,43 +1317,15 @@ class DrugCLIP(UnicoreTask):
                 for batch, sample in enumerate(tqdm(mol_data)):
                     if use_cuda:
                         sample = unicore.utils.move_to_cuda(sample)
-                    
-                    dist = sample["net_input"]["mol_src_distance"]
-                    et = sample["net_input"]["mol_src_edge_type"]
-                    st = sample["net_input"]["mol_src_tokens"]
-                    mol_padding_mask = st.eq(model.mol_model.padding_idx)
-                    mol_x = model.mol_model.embed_tokens(st)
-                    n_node = dist.size(-1)
-                    gbf_feature = model.mol_model.gbf(dist, et)
-                    gbf_result = model.mol_model.gbf_proj(gbf_feature)
-                    graph_attn_bias = gbf_result
-                    graph_attn_bias = graph_attn_bias.permute(0, 3, 1, 2).contiguous()
-                    graph_attn_bias = graph_attn_bias.view(-1, n_node, n_node)
-                    mol_outputs = model.mol_model.encoder(
-                        mol_x, padding_mask=mol_padding_mask, attn_mask=graph_attn_bias
-                    )
-                    mol_encoder_rep = mol_outputs[0][:,0,:]
-                    mol_emb = model.mol_project(mol_encoder_rep)
-                    mol_emb = mol_emb / mol_emb.norm(dim=-1, keepdim=True)
-                    mol_emb = mol_emb.detach().cpu().numpy()
+
+                    mol_emb = self._encode_mol_batch(model, sample["net_input"])
                     if write_h5:
                         dset[num_written+batch*bsz:num_written+batch*bsz+len(mol_emb), fold*128:(fold+1)*128] = mol_emb
                         kset[num_written+batch*bsz:num_written+batch*bsz+len(mol_emb)] = 1
                         if batch % flush_interval == 0:
                             hdf5.flush()
-                    #mol_reps.append(mol_emb)
-                    #index = st.squeeze(0) > 3
-                    #cur_mol_reps = mol_outputs[0]
-                    #cur_mol_reps = cur_mol_reps[:, index, :]
                     if write_npy:
                         mol_reps.append(mol_emb)
-                    #print(mol_emb.detach().cpu().numpy().shape)
-                    # mol_names.extend(sample["smi_name"])
-
-                    #ids = sample["id"]
-                    #subsets = sample["subset"]
-                    #ids_subsets = [ids[i] + ";" + subsets[i] for i in range(len(ids))]
-                    #mol_ids_subsets.extend(ids_subsets)
                 if write_npy:
                     mol_reps = np.concatenate(mol_reps, axis=0)
                     # add a dimension to mol_reps
@@ -1606,12 +1353,10 @@ class DrugCLIP(UnicoreTask):
             mol_reps_all = mol_reps_all.astype(np.float32)
 
             # save the reps to npy file
-            print(mol_reps_all.shape)
             np.save(os.path.join(save_dir,f"mol_reps{kwargs.get('start', '')}{kwargs.get('end', '')}.npy"), mol_reps_all)
 
     
     def encode_pockets_multi_folds(self, model, pocket_dir, pocket_path, **kwargs):
-        print(pocket_path)
         # 6 folds
         ckpts = [f"./data/model_weights/6_folds/fold_{i}.pt" for i in range(6)]
 
@@ -1638,29 +1383,9 @@ class DrugCLIP(UnicoreTask):
             pocket_reps = []
             pocket_names = []
             for _, sample in enumerate(tqdm(pocket_data)):
-
                 sample = unicore.utils.move_to_cuda(sample)
-                dist = sample["net_input"]["pocket_src_distance"]
-                et = sample["net_input"]["pocket_src_edge_type"]
-                st = sample["net_input"]["pocket_src_tokens"]
-                pocket_padding_mask = st.eq(model.pocket_model.padding_idx)
-                pocket_x = model.pocket_model.embed_tokens(st)
-                n_node = dist.size(-1)
-                gbf_feature = model.pocket_model.gbf(dist, et)
-                gbf_result = model.pocket_model.gbf_proj(gbf_feature)
-                graph_attn_bias = gbf_result
-                graph_attn_bias = graph_attn_bias.permute(0, 3, 1, 2).contiguous()
-                graph_attn_bias = graph_attn_bias.view(-1, n_node, n_node)
-                pocket_outputs = model.pocket_model.encoder(
-                    pocket_x, padding_mask=pocket_padding_mask, attn_mask=graph_attn_bias
-                )
-                pocket_encoder_rep = pocket_outputs[0][:,0,:]
-                pocket_emb = model.pocket_project(pocket_encoder_rep)
-                pocket_emb = pocket_emb / pocket_emb.norm(dim=-1, keepdim=True)
-                pocket_emb = pocket_emb.detach().cpu().numpy()
-                pocket_name = sample["pocket_name"]
-                pocket_names.extend(pocket_name)
-                pocket_reps.append(pocket_emb)
+                pocket_reps.append(self._encode_pocket_batch(model, sample["net_input"]))
+                pocket_names.extend(sample["pocket_name"])
 
             pocket_reps = np.concatenate(pocket_reps, axis=0)   # (n_pockets, hidden)
             pocket_reps = pocket_reps.astype(np.float32)
@@ -1669,12 +1394,6 @@ class DrugCLIP(UnicoreTask):
 
         # concatenate along fold axis -> (n_pockets, n_folds, hidden)
         pocket_reps_all = np.concatenate(pocket_reps_all, axis=1)
-
-        print(pocket_reps_all.shape)
-
-        #print(pocket_reps_all.shape)
-
-        # save the reps and names
 
         return pocket_reps_all, pocket_names
 
@@ -1724,63 +1443,21 @@ class DrugCLIP(UnicoreTask):
             else:
                 mol_reps = []
                 mol_names = []
-                mol_ids_subsets = []
                 for _, sample in enumerate(tqdm(mol_data_loader)):
                     if use_cuda:
                         sample = unicore.utils.move_to_cuda(sample)
-                    dist = sample["net_input"]["mol_src_distance"]
-                    et = sample["net_input"]["mol_src_edge_type"]
-                    st = sample["net_input"]["mol_src_tokens"]
-                    mol_padding_mask = st.eq(model.mol_model.padding_idx)
-                    mol_x = model.mol_model.embed_tokens(st)
-                    n_node = dist.size(-1)
-                    gbf_feature = model.mol_model.gbf(dist, et)
-                    gbf_result = model.mol_model.gbf_proj(gbf_feature)
-                    graph_attn_bias = gbf_result
-                    graph_attn_bias = graph_attn_bias.permute(0, 3, 1, 2).contiguous()
-                    graph_attn_bias = graph_attn_bias.view(-1, n_node, n_node)
-                    mol_outputs = model.mol_model.encoder(
-                        mol_x, padding_mask=mol_padding_mask, attn_mask=graph_attn_bias
-                    )
-                    mol_encoder_rep = mol_outputs[0][:,0,:]
-                    mol_emb = model.mol_project(mol_encoder_rep)
-                    mol_emb = mol_emb / mol_emb.norm(dim=-1, keepdim=True)
-                    mol_emb = mol_emb.detach().cpu().numpy()
-                    mol_reps.append(mol_emb)
+                    mol_reps.append(self._encode_mol_batch(model, sample["net_input"]))
                     mol_names.extend(sample["smi_name"])
                 mol_reps = np.concatenate(mol_reps, axis=0)
                 with open(mol_cache_path, "wb") as f:
                     pickle.dump([mol_reps, mol_names], f)
 
-            
-
             # generate pocket data (dataset already loaded outside loop)
             pocket_reps = []
-
             for _, sample in enumerate(tqdm(pocket_data)):
                 if use_cuda:
                     sample = unicore.utils.move_to_cuda(sample)
-                #sample = unicore.utils.move_to_cuda(sample)
-                dist = sample["net_input"]["pocket_src_distance"]
-                et = sample["net_input"]["pocket_src_edge_type"]
-                st = sample["net_input"]["pocket_src_tokens"]
-                pocket_padding_mask = st.eq(model.pocket_model.padding_idx)
-                pocket_x = model.pocket_model.embed_tokens(st)
-                n_node = dist.size(-1)
-                gbf_feature = model.pocket_model.gbf(dist, et)
-                gbf_result = model.pocket_model.gbf_proj(gbf_feature)
-                graph_attn_bias = gbf_result
-                graph_attn_bias = graph_attn_bias.permute(0, 3, 1, 2).contiguous()
-                graph_attn_bias = graph_attn_bias.view(-1, n_node, n_node)
-                pocket_outputs = model.pocket_model.encoder(
-                    pocket_x, padding_mask=pocket_padding_mask, attn_mask=graph_attn_bias
-                )
-                pocket_encoder_rep = pocket_outputs[0][:,0,:]
-                pocket_emb = model.pocket_project(pocket_encoder_rep)
-                pocket_emb = pocket_emb / pocket_emb.norm(dim=-1, keepdim=True)
-                pocket_emb = pocket_emb.detach().cpu().numpy()
-                pocket_reps.append(pocket_emb)
-            print(len(pocket_reps))
+                pocket_reps.append(self._encode_pocket_batch(model, sample["net_input"]))
             pocket_reps = np.concatenate(pocket_reps, axis=0)
             # change reps to fp32
             mol_reps = mol_reps.astype(np.float32)
@@ -1788,11 +1465,7 @@ class DrugCLIP(UnicoreTask):
 
             res_list.append(pocket_reps @ mol_reps.T)
 
-
-
         res_new = np.array(res_list)
-
-        print(res_new.shape)
         res_new = np.mean(res_new, axis=0)
 
         if fold_version.startswith("6_folds"):
@@ -1821,20 +1494,4 @@ class DrugCLIP(UnicoreTask):
                 f.write(f"{name},{score}\n")
 
         return
-        
 
-        
-         
-
-
-    
-
-    
-
-        
-            
-         
-
-        
-    
-    

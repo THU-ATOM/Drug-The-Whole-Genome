@@ -7,14 +7,9 @@
 import logging
 import os
 import sys
-import pickle
 import torch
-from unicore import checkpoint_utils, distributed_utils, options, utils
-from unicore.logging import progress_bar
+from unicore import checkpoint_utils, distributed_utils, options
 from unicore import tasks
-import numpy as np
-from tqdm import tqdm
-import unicore
 
 logging.basicConfig(
     format="%(asctime)s | %(levelname)s | %(name)s | %(message)s",
@@ -25,12 +20,6 @@ logging.basicConfig(
 logger = logging.getLogger("unimol.inference")
 
 
-#from skchem.metrics import bedroc_score
-from rdkit.ML.Scoring.Scoring import CalcBEDROC, CalcAUC, CalcEnrichment
-from sklearn.metrics import roc_curve
-
-
-
 def main(args):
 
     use_fp16 = args.fp16
@@ -38,7 +27,6 @@ def main(args):
 
     if use_cuda:
         torch.cuda.set_device(args.device_id)
-
 
     # Load model
     logger.info("loading model(s) from {}".format(args.path))
@@ -53,22 +41,16 @@ def main(args):
     if use_cuda:
         model.cuda()
 
-    # Print args
     logger.info(args)
 
-
     model.eval()
-    if args.test_task=="DUDE":
-        task.test_dude(model, use_folds = args.use_folds)
-
-    elif args.test_task=="PCBA":
-        task.test_pcba(model, use_folds = args.use_folds)
+    if args.test_task == "DUDE":
+        task.test_dude(model, use_folds=args.use_folds)
+    elif args.test_task == "PCBA":
+        task.test_pcba(model, use_folds=args.use_folds)
 
 
 def cli_main():
-    # add args
-    
-
     parser = options.get_validation_parser()
     parser.add_argument("--test-task", type=str, default="DUDE", help="test task", choices=["DUDE", "PCBA"])
     parser.add_argument("--use-folds", type=str, default=True, help="use 6 folds weights")

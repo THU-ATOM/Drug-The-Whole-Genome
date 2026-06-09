@@ -8,13 +8,18 @@ import logging
 import os
 import sys
 import pickle
+import re
+import warnings
 import torch
-from unicore import checkpoint_utils, distributed_utils, options, utils
-from unicore.logging import progress_bar
-from unicore import tasks
 import numpy as np
-from tqdm import tqdm
-import unicore
+import lmdb
+from unicore import distributed_utils, options
+from unicore import tasks
+
+from Bio.PDB import PDBParser, Chain, is_aa
+from Bio.PDB.Residue import DisorderedResidue, Residue
+from Bio.PDB.Atom import DisorderedAtom
+from Bio.PDB.StructureBuilder import PDBConstructionWarning
 
 logging.basicConfig(
     format="%(asctime)s | %(levelname)s | %(name)s | %(message)s",
@@ -24,26 +29,6 @@ logging.basicConfig(
 )
 logger = logging.getLogger("unimol.inference")
 
-
-#from skchem.metrics import bedroc_score
-from rdkit.ML.Scoring.Scoring import CalcBEDROC, CalcAUC, CalcEnrichment
-from sklearn.metrics import roc_curve
-
-
-import os
-from Bio.PDB import PDBParser,Chain,Model,Structure
-from Bio.PDB.PDBIO import PDBIO
-from Bio.PDB import is_aa
-from Bio.PDB.Residue import DisorderedResidue,Residue
-from Bio.PDB.Atom import DisorderedAtom
-import warnings
-from Bio.PDB.StructureBuilder import PDBConstructionWarning
-from tqdm import tqdm
-import numpy as np
-import lmdb
-import numpy as np
-import pickle
-import re
 
 def write_lmdb(data, lmdb_path, num):
     #resume
