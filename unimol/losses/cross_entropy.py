@@ -257,29 +257,10 @@ class DecoderVAELoss(CrossEntropyLoss):
             probs = torch.cat(prob_list, dim=0)
             preds = torch.cat(pred_list, dim=0)
             targets = torch.cat(target_list, dim=0)
-            #print(preds.shape, targets.shape)
             acc = (preds == targets).float().mean(dim=-1)
-            #print(acc.shape)
             metrics.log_scalar(
                 f"{split}_acc", acc , sample_size, round=3
             )
-            '''
-            # smi_list = [
-            #     item for log in logging_outputs for item in log.get("smi_name")
-            # ]
-            probs = torch.exp(probs)
-            #prob_flat = prob_flat.reshape((-1, prob_flat.shape[-1]))
-            print(probs.shape)
-
-            #targets = targets.squeeze(dim=-1)
-            auc = roc_auc_score(targets.cpu(), probs.cpu(), multi_class="ovo", labels=torch.arange(probs.shape[-1]))
-            #df = df.groupby("smi").mean()
-            #agg_auc = roc_auc_score(df["targets"], df["probs"])
-            agg_auc = auc
-            
-            metrics.log_scalar(f"{split}_auc", auc, sample_size, round=3)
-            metrics.log_scalar(f"{split}_agg_auc", agg_auc, sample_size, round=4)
-            '''
         
     @staticmethod
     def logging_outputs_can_be_summed(is_train) -> bool:
@@ -473,9 +454,6 @@ class CEntropyLoss(CrossEntropyLoss):
                 [log.get("target", 0) for log in logging_outputs], dim=0
             )
             probs = torch.cat([log.get("prob") for log in logging_outputs], dim=0)
-            #probs = torch.sigmoid(probs)
-            print(probs.shape, targets.shape)
-            print(probs[:10], targets[:10])
             preds = probs > 0.5
             # convert to int
             preds = preds.long()
@@ -630,7 +608,6 @@ class IBSLoss(CrossEntropyLoss):
             targets = torch.cat(
                 [log.get("target", 0) for log in logging_outputs], dim=0
             )
-            print(targets.shape, probs.shape)
 
             targets = targets[:len(probs)]
             bedroc_list = []

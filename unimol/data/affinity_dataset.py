@@ -39,17 +39,10 @@ class AffinityDataset(BaseWrapperDataset):
         super().set_epoch(epoch)
         self.epoch = epoch
     
-    def pocket_atom(self, atom):
-        if atom[0] in ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9']:
-            return atom[1]
-        else:
-            return atom[0]
-
     @lru_cache(maxsize=16)
     def __cached_item__(self, index: int, epoch: int):
         atoms = np.array(self.dataset[index][self.atoms])
         ori_mol_length = len(atoms)
-        #coordinates = self.dataset[index][self.coordinates]
         size = len(self.dataset[index][self.coordinates])
         if self.is_train:
             with data_utils.numpy_seed(self.seed, epoch, index):
@@ -57,11 +50,9 @@ class AffinityDataset(BaseWrapperDataset):
         else:
             with data_utils.numpy_seed(self.seed, 1, index):
                 sample_idx = np.random.randint(size)
-        #print(len(self.dataset[index][self.coordinates][sample_idx]))
         coordinates = self.dataset[index][self.coordinates][sample_idx]
-        #print(coordinates.shape)
         pocket_atoms = np.array(
-            [self.pocket_atom(item) for item in self.dataset[index][self.pocket_atoms]]
+            [data_utils.pocket_atom(item) for item in self.dataset[index][self.pocket_atoms]]
         )
         ori_pocket_length = len(pocket_atoms)
         pocket_coordinates = np.stack(self.dataset[index][self.pocket_coordinates])
@@ -118,20 +109,12 @@ class AffinityAugDataset(BaseWrapperDataset):
         super().set_epoch(epoch)
         self.epoch = epoch
     
-    def pocket_atom(self, atom):
-        if atom[0] in ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9']:
-            return atom[1]
-        else:
-            return atom[0]
-
     @lru_cache(maxsize=16)
     def __cached_item__(self, index: int, epoch: int):
-        #mol_atoms_list = self.dataset[index][self.atoms]
         with data_utils.numpy_seed(self.seed, epoch, index):
             mol_idx = np.random.randint(len(self.dataset[index][self.atoms]))
         atoms = np.array(self.dataset[index][self.atoms][mol_idx])
         ori_mol_length = len(atoms)
-        #coordinates = self.dataset[index][self.coordinates]
         size = len(self.dataset[index][self.coordinates][mol_idx])
         if self.is_train:
             with data_utils.numpy_seed(self.seed, epoch, index):
@@ -139,15 +122,13 @@ class AffinityAugDataset(BaseWrapperDataset):
         else:
             with data_utils.numpy_seed(self.seed, 1, index):
                 sample_idx = np.random.randint(size)
-        #print(len(self.dataset[index][self.coordinates][sample_idx]))
         coordinates = self.dataset[index][self.coordinates][mol_idx][sample_idx]
 
 
-        #pocket_list = self.dataset[index][self.pocket_atoms]
         with data_utils.numpy_seed(self.seed, epoch, index):
             pocket_idx = np.random.randint(len(self.dataset[index][self.pocket_atoms]))
         pocket_atoms = np.array(
-            [self.pocket_atom(item) for item in self.dataset[index][self.pocket_atoms][pocket_idx]]
+            [data_utils.pocket_atom(item) for item in self.dataset[index][self.pocket_atoms][pocket_idx]]
         )
 
         ori_pocket_length = len(pocket_atoms)
@@ -209,17 +190,10 @@ class AffinityHNSDataset(BaseWrapperDataset):
         super().set_epoch(epoch)
         self.epoch = epoch
     
-    def pocket_atom(self, atom):
-        if atom[0] in ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9']:
-            return atom[1]
-        else:
-            return atom[0]
-
     @lru_cache(maxsize=16)
     def __cached_item__(self, index: int, epoch: int):
         atoms = np.array(self.dataset[index][self.atoms])
         ori_mol_length = len(atoms)
-        #coordinates = self.dataset[index][self.coordinates]
         size = len(self.dataset[index][self.coordinates])
         if self.is_train:
             with data_utils.numpy_seed(self.seed, epoch, index):
@@ -227,7 +201,6 @@ class AffinityHNSDataset(BaseWrapperDataset):
         else:
             with data_utils.numpy_seed(self.seed, 1, index):
                 sample_idx = np.random.randint(size)
-        #print(len(self.dataset[index][self.coordinates][sample_idx]))
         coordinates = self.dataset[index][self.coordinates][sample_idx]
         atoms_hns = np.array(self.dataset[index][self.atoms_hns])
         coordinates_hns = self.dataset[index][self.coordinates_hns][0]
@@ -235,7 +208,7 @@ class AffinityHNSDataset(BaseWrapperDataset):
 
 
         pocket_atoms = np.array(
-            [self.pocket_atom(item) for item in self.dataset[index][self.pocket_atoms]]
+            [data_utils.pocket_atom(item) for item in self.dataset[index][self.pocket_atoms]]
         )
         ori_pocket_length = len(pocket_atoms)
         pocket_coordinates = np.stack(self.dataset[index][self.pocket_coordinates])
@@ -293,25 +266,17 @@ class AffinityTestDataset(BaseWrapperDataset):
         super().set_epoch(epoch)
         self.epoch = epoch
     
-    def pocket_atom(self, atom):
-        if atom[0] in ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9']:
-            return atom[1]
-        else:
-            return atom[0]
-
     @lru_cache(maxsize=16)
     def __cached_item__(self, index: int, epoch: int):
         atoms = np.array(self.dataset[index][self.atoms])
         ori_length = len(atoms)
-        #coordinates = self.dataset[index][self.coordinates]
         size = len(self.dataset[index][self.coordinates])
         with data_utils.numpy_seed(self.seed, epoch, index):
             sample_idx = np.random.randint(size)
         coordinates = self.dataset[index][self.coordinates][sample_idx]
         pocket_atoms = np.array(
-            [self.pocket_atom(item) for item in self.dataset[index][self.pocket_atoms]]
+            [data_utils.pocket_atom(item) for item in self.dataset[index][self.pocket_atoms]]
         )
-        #print(len(self.dataset[index][self.pocket_coordinates]))
         pocket_coordinates = np.stack(self.dataset[index][self.pocket_coordinates])
 
         smi = self.dataset[index]["smi"]
@@ -354,22 +319,12 @@ class AffinityMolDataset(BaseWrapperDataset):
         super().set_epoch(epoch)
         self.epoch = epoch
     
-    def pocket_atom(self, atom):
-        if atom[0] in ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9']:
-            return atom[1]
-        else:
-            return atom[0]
-
     @lru_cache(maxsize=16)
     def __cached_item__(self, index: int, epoch: int):
-        #print(self.dataset[index])
         atoms = np.array(self.dataset[index][self.atoms])
-        #print(atoms)
         ori_length = len(atoms)
        
-        #coordinates = self.dataset[index][self.coordinates]
         size = len(self.dataset[index][self.coordinates])
-        #print(size)
         with data_utils.numpy_seed(self.seed, epoch, index):
             sample_idx = np.random.randint(size)
         # check coordinates is 2 dimension or not
@@ -377,8 +332,6 @@ class AffinityMolDataset(BaseWrapperDataset):
             coordinates = self.dataset[index][self.coordinates][sample_idx]
         else:
             coordinates = self.dataset[index][self.coordinates]
-        #coordinates = self.dataset[index][self.coordinates][sample_idx]
-        #coordinates = self.dataset[index][self.coordinates]
 
         # resize coordinates to n x 3
 
@@ -424,16 +377,10 @@ class AffinityPocketDataset(BaseWrapperDataset):
         super().set_epoch(epoch)
         self.epoch = epoch
     
-    def pocket_atom(self, atom):
-        if atom[0] in ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9']:
-            return atom[1]
-        else:
-            return atom[0]
-
     @lru_cache(maxsize=16)
     def __cached_item__(self, index: int, epoch: int):
         pocket_atoms = np.array(
-            [self.pocket_atom(item) for item in self.dataset[index][self.pocket_atoms]]
+            [data_utils.pocket_atom(item) for item in self.dataset[index][self.pocket_atoms]]
         )
         ori_length = len(pocket_atoms)
         pocket_coordinates = np.stack(self.dataset[index][self.pocket_coordinates])
@@ -476,24 +423,17 @@ class AffinityValidDataset(BaseWrapperDataset):
         super().set_epoch(epoch)
         self.epoch = epoch
     
-    def pocket_atom(self, atom):
-        if atom[0] in ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9']:
-            return atom[1]
-        else:
-            return atom[0]
-
     @lru_cache(maxsize=16)
     def __cached_item__(self, index: int, epoch: int):
         atoms = np.array(self.dataset[index][self.atoms])
         ori_mol_length = len(atoms)
-        #coordinates = self.dataset[index][self.coordinates]
 
         size = len(self.dataset[index][self.coordinates])
         with data_utils.numpy_seed(self.seed, epoch, index):
             sample_idx = np.random.randint(size)
         coordinates = self.dataset[index][self.coordinates][sample_idx]
         pocket_atoms = np.array(
-            [self.pocket_atom(item) for item in self.dataset[index][self.pocket_atoms]]
+            [data_utils.pocket_atom(item) for item in self.dataset[index][self.pocket_atoms]]
         )
         ori_pocket_length = len(pocket_atoms)
         pocket_coordinates = np.stack(self.dataset[index][self.pocket_coordinates])

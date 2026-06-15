@@ -71,19 +71,13 @@ class CroppingPocketDataset(BaseWrapperDataset):
                     coordinates - coordinates.mean(axis=0), axis=1
                 )
 
-                def softmax(x):
-                    x -= np.max(x)
-                    x = np.exp(x) / np.sum(np.exp(x))
-                    return x
-
                 distance += 1  # prevent inf
-                weight = softmax(np.reciprocal(distance))
+                weight = data_utils.softmax_weights(np.reciprocal(distance))
                 index = np.random.choice(
                     len(atoms), self.max_atoms, replace=False, p=weight
                 )
                 atoms = atoms[index]
                 coordinates = coordinates[index]
-                #residue = residue[index]
 
         dd[self.atoms] = atoms
         dd[self.coordinates] = coordinates.astype(np.float32)
@@ -134,13 +128,8 @@ class CroppingResiduePocketDataset(BaseWrapperDataset):
                 residues_ids = np.array(residues_ids)
                 residues_distance = np.array(residues_distance)
 
-                def softmax(x):
-                    x -= np.max(x)
-                    x = np.exp(x) / np.sum(np.exp(x))
-                    return x
-
                 residues_distance += 1  # prevent inf and smoothing out the distance
-                weight = softmax(np.reciprocal(residues_distance))
+                weight = data_utils.softmax_weights(np.reciprocal(residues_distance))
                 max_residues = self.max_atoms // (len(atoms) // (len(residues_ids) + 1))
                 if max_residues < 1:
                     max_residues += 1
@@ -197,13 +186,8 @@ class CroppingPocketDockingPoseDataset(BaseWrapperDataset):
                     coordinates - coordinates.mean(axis=0), axis=1
                 )
 
-                def softmax(x):
-                    x -= np.max(x)
-                    x = np.exp(x) / np.sum(np.exp(x))
-                    return x
-
                 distance += 1  # prevent inf
-                weight = softmax(np.reciprocal(distance))
+                weight = data_utils.softmax_weights(np.reciprocal(distance))
                 index = np.random.choice(
                     len(atoms), self.max_atoms, replace=False, p=weight
                 )
@@ -248,13 +232,8 @@ class CroppingPocketDockingPoseTestDataset(BaseWrapperDataset):
                     coordinates - coordinates.mean(axis=0), axis=1
                 )
 
-                def softmax(x):
-                    x -= np.max(x)
-                    x = np.exp(x) / np.sum(np.exp(x))
-                    return x
-
                 distance += 1  # prevent inf
-                weight = softmax(np.reciprocal(distance))
+                weight = data_utils.softmax_weights(np.reciprocal(distance))
                 index = np.random.choice(
                     len(atoms), self.max_atoms, replace=False, p=weight
                 )

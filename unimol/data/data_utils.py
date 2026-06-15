@@ -6,6 +6,22 @@ import numpy as np
 import contextlib
 
 
+def pocket_atom(atom):
+    """Extract element symbol from a pocket atom label.
+
+    Pocket atom labels sometimes start with a digit (e.g. '1CA' → 'C').
+    Returns the first non-digit character.
+    """
+    return atom[1] if atom[0].isdigit() else atom[0]
+
+
+def softmax_weights(x):
+    """Numerically stable softmax probability weights (numpy array)."""
+    x = x - x.max()
+    e = np.exp(x)
+    return e / e.sum()
+
+
 @contextlib.contextmanager
 def numpy_seed(seed, *addl_seeds):
     """Context manager which seeds the NumPy PRNG with the specified seed and

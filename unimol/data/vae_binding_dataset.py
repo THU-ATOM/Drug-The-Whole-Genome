@@ -37,24 +37,17 @@ class VAEBindingDataset(BaseWrapperDataset):
         super().set_epoch(epoch)
         self.epoch = epoch
     
-    def pocket_atom(self, atom):
-        if atom[0] in ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9']:
-            return atom[1]
-        else:
-            return atom[0]
-
     @lru_cache(maxsize=16)
     def __cached_item__(self, index: int, epoch: int):
         atoms = np.array(self.dataset[index][self.atoms])
         coordinates = self.dataset[index][self.coordinates]
         pocket_atoms = np.array(
-            [self.pocket_atom(item) for item in self.dataset[index][self.pocket_atoms]]
+            [data_utils.pocket_atom(item) for item in self.dataset[index][self.pocket_atoms]]
         )
         pocket_coordinates = np.stack(self.dataset[index][self.pocket_coordinates])
 
         smi = self.dataset[index]["smi"]
         pocket = self.dataset[index]["pocket"]
-        #affinity = self.dataset[index][self.affinity]
         selfies = np.array(self.dataset[index][self.selfies])
         return {
             "atoms": atoms,
@@ -96,25 +89,18 @@ class VAEBindingTestDataset(BaseWrapperDataset):
         super().set_epoch(epoch)
         self.epoch = epoch
     
-    def pocket_atom(self, atom):
-        if atom[0] in ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9']:
-            return atom[1]
-        else:
-            return atom[0]
-
     @lru_cache(maxsize=16)
     def __cached_item__(self, index: int, epoch: int):
         atoms = np.array(self.dataset[index][self.atoms])
         coordinates = self.dataset[index][self.coordinates]
         pocket_atoms = np.array(
-            [self.pocket_atom(item) for item in self.dataset[index][self.pocket_atoms]]
+            [data_utils.pocket_atom(item) for item in self.dataset[index][self.pocket_atoms]]
         )
         pocket_coordinates = np.stack(self.dataset[index][self.pocket_coordinates])
 
         smi = self.dataset[index]["smi"]
         pocket = self.dataset[index]["pocket_name"]
         lig = self.dataset[index]["lig_name"]
-        #affinity = self.dataset[index][self.affinity]
         return {
             "atoms": atoms,
             "coordinates": coordinates.astype(np.float32),
@@ -150,16 +136,10 @@ class VAEGenerationTestDataset(BaseWrapperDataset):
         super().set_epoch(epoch)
         self.epoch = epoch
     
-    def pocket_atom(self, atom):
-        if atom[0] in ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9']:
-            return atom[1]
-        else:
-            return atom[0]
-
     @lru_cache(maxsize=16)
     def __cached_item__(self, index: int, epoch: int):
         pocket_atoms = np.array(
-            [self.pocket_atom(item) for item in self.dataset[index][self.pocket_atoms]]
+            [data_utils.pocket_atom(item) for item in self.dataset[index][self.pocket_atoms]]
         )
         pocket_coordinates = np.stack(self.dataset[index][self.pocket_coordinates])
 

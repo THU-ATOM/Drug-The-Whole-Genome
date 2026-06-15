@@ -7,15 +7,11 @@ from functools import lru_cache
 from unicore.data import BaseWrapperDataset
 
 
-class RemoveHydrogenDataset(BaseWrapperDataset):
-    def __init__(
-        self,
-        dataset,
-        atoms,
-        coordinates,
-        remove_hydrogen=False,
-        remove_polar_hydrogen=False,
-    ):
+class _HydrogenFilterDataset(BaseWrapperDataset):
+    """Shared base: filter H / polar-H atoms from a coordinate dataset."""
+
+    def __init__(self, dataset, atoms, coordinates,
+                 remove_hydrogen=False, remove_polar_hydrogen=False):
         self.dataset = dataset
         self.atoms = atoms
         self.coordinates = coordinates
@@ -32,13 +28,11 @@ class RemoveHydrogenDataset(BaseWrapperDataset):
         dd = self.dataset[index].copy()
         atoms = dd[self.atoms]
         coordinates = dd[self.coordinates]
-
         if self.remove_hydrogen:
-            mask_hydrogen = atoms != "H"
-            atoms = atoms[mask_hydrogen]
-            #print(coordinates.shape)
-            coordinates = coordinates[mask_hydrogen]
-        if not self.remove_hydrogen and self.remove_polar_hydrogen:
+            mask = atoms != "H"
+            atoms = atoms[mask]
+            coordinates = coordinates[mask]
+        elif self.remove_polar_hydrogen:
             end_idx = 0
             for i, atom in enumerate(atoms[::-1]):
                 if atom != "H":
@@ -56,7 +50,24 @@ class RemoveHydrogenDataset(BaseWrapperDataset):
         return self.__cached_item__(index, self.epoch)
 
 
+class RemoveHydrogenDataset(_HydrogenFilterDataset):
+    """Remove hydrogens from a molecule dataset."""
+    pass
+
+
+class RemoveHydrogenPocketDataset(_HydrogenFilterDataset):
+    """Remove hydrogens from a pocket dataset (default: remove all H)."""
+
+    def __init__(self, dataset, atoms, coordinates,
+                 remove_hydrogen=True, remove_polar_hydrogen=False):
+        super().__init__(dataset, atoms, coordinates,
+                         remove_hydrogen=remove_hydrogen,
+                         remove_polar_hydrogen=remove_polar_hydrogen)
+
+
 class RemoveHydrogenResiduePocketDataset(BaseWrapperDataset):
+    """Remove hydrogens from a residue-level pocket dataset."""
+
     def __init__(self, dataset, atoms, residues, coordinates, remove_hydrogen=True):
         self.dataset = dataset
         self.atoms = atoms
@@ -80,63 +91,13 @@ class RemoveHydrogenResiduePocketDataset(BaseWrapperDataset):
             atoms = atoms[:min_len]
             residues = residues[:min_len]
             coordinates = coordinates[:min_len, :]
-
         if self.remove_hydrogen:
-            mask_hydrogen = atoms != "H"
-            atoms = atoms[mask_hydrogen]
-            residues = residues[mask_hydrogen]
-            coordinates = coordinates[mask_hydrogen]
-
+            mask = atoms != "H"
+            atoms = atoms[mask]
+            residues = residues[mask]
+            coordinates = coordinates[mask]
         dd[self.atoms] = atoms
         dd[self.residues] = residues
-        dd[self.coordinates] = coordinates.astype(np.float32)
-        return dd
-
-    def __getitem__(self, index: int):
-        return self.__cached_item__(index, self.epoch)
-
-
-class RemoveHydrogenPocketDataset(BaseWrapperDataset):
-    def __init__(
-        self,
-        dataset,
-        atoms,
-        coordinates,
-        remove_hydrogen=True,
-        remove_polar_hydrogen=False,
-    ):
-        self.dataset = dataset
-        self.atoms = atoms
-        self.coordinates = coordinates
-        self.remove_hydrogen = remove_hydrogen
-        self.remove_polar_hydrogen = remove_polar_hydrogen
-        self.set_epoch(None)
-
-    def set_epoch(self, epoch, **unused):
-        super().set_epoch(epoch)
-        self.epoch = epoch
-
-    @lru_cache(maxsize=16)
-    def __cached_item__(self, index: int, epoch: int):
-        dd = self.dataset[index].copy()
-        atoms = dd[self.atoms]
-        coordinates = dd[self.coordinates]
-
-        if self.remove_hydrogen:
-            mask_hydrogen = atoms != "H"
-            atoms = atoms[mask_hydrogen]
-            coordinates = coordinates[mask_hydrogen]
-        if not self.remove_hydrogen and self.remove_polar_hydrogen:
-            end_idx = 0
-            for i, atom in enumerate(atoms[::-1]):
-                if atom != "H":
-                    break
-                else:
-                    end_idx = i + 1
-            if end_idx != 0:
-                atoms = atoms[:-end_idx]
-                coordinates = coordinates[:-end_idx]
-        dd[self.atoms] = atoms
         dd[self.coordinates] = coordinates.astype(np.float32)
         return dd
 

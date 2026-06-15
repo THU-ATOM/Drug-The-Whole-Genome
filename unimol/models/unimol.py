@@ -138,7 +138,6 @@ class UniMolModel(BaseUnicoreModel):
             len(dictionary), args.encoder_embed_dim, self.padding_idx
         )
         self._num_updates = None
-        print("23567", args.emb_dropout)
         self.encoder = TransformerEncoderWithPair(
             encoder_layers=args.encoder_layers,
             embed_dim=args.encoder_embed_dim,
