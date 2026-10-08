@@ -32,32 +32,6 @@ The 5 targets and their active counts:
 | mk10  | MAPK10 | 27 |
 | xiap  | XIAP  | 27 |
 
-## Data required
-
-| Path | Size | Role |
-|------|------|------|
-| `data/dict_mol.txt`, `data/dict_pkt.txt` | 4K each | ligand / pocket token dictionaries |
-| `/home/gaobowen/library_actives_per_target.tsv` | 128K | **actives** source (see format below) |
-| `/drug/encoding_mols/chemdiv_1640k_new.lmdb` | 2.5G | **decoy** pool (1.64M molecules) |
-| `data/model_weights/6_folds/fold_0.pt … fold_5.pt` | 1.2G × 6 | 6-fold ensemble weights |
-| `data/benchmark_weights/dude_identity_90.pt` | 1.2G | initial `--path` weight (loaded once, then each fold overrides it) |
-| `data/DUD-E/{adrb2,esr2,mk01,mk10,xiap}/pocket.lmdb` | ~30K each | per-target pocket (the only per-target input read) |
-
-Notes:
-- `data/DUD-E/<target>/mols.lmdb` is **not** read when the TSV is present (actives come from the TSV, decoys from ChemDiv), but the `data/DUD-E/<target>/` folder must exist since targets are discovered via `os.listdir`.
-- Total footprint ≈ 11 GB (6×1.2G folds + 1.2G init weight + 2.5G ChemDiv); everything else is tiny.
-
-### TSV format (`library_actives_per_target.tsv`)
-
-Tab-separated, header row present. The loader only uses **column 1 `target`** and
-**column 3 `smiles`**; the target name is mapped to the DUD-E folder via
-`_library_target_alias` (e.g. MAPK1→mk01, MAPK10→mk10).
-
-```
-target	uniprot_id	smiles	pActivity	...
-ADRB2	P07550	Cn1nc(C(=O)OCCCCNC[C@H](O)...	9
-```
-
 ## How the test works (`test_dude_target_ensemble`)
 
 1. Build the per-target library: actives + ~16,481 ChemDiv decoys.
