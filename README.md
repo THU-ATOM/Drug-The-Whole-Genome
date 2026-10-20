@@ -101,8 +101,6 @@ The study systematically dissects what DrugCLIP's learned embeddings encode and 
 - **Conformer robustness.** Embeddings stay consistent across alternative conformers of the same pocket/ligand.
 - **Boundaries of applicability.** Performance depends on input pocket accuracy, decreasing as the structure deviates from holo — across holo, apo, AlphaFold, and predicted pockets — due to sidechain reorientation and (for predicted pockets) residue mismatch. Some enrichment ability remains even in the hardest setting.
 
-Code and data for the analysis: https://github.com/JavierSanchez-Utges/DrugCLIP-pocket-analysis and https://zenodo.org/records/22791467
-
 If you have questions about our work, this paper's analysis is a good place to look.
 
 ## Other tools
