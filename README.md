@@ -87,7 +87,7 @@ select TASK to DUDE or PCBA in test.sh
 
 ## Understanding DrugCLIP — recommended reading
 
-For an independent analysis of what DrugCLIP can and cannot do, see:
+A recent independent study analyzes DrugCLIP's embeddings and screening behavior in detail:
 
 > **Interrogating contrastive learning embeddings for structure-based virtual screening: a case study on DrugCLIP**
 > Javier S. Utgés, David T. Jones, Christine Orengo (UCL, Institute of Structural and Molecular Biology), bioRxiv 2026.
