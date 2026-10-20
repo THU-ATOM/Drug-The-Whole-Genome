@@ -95,11 +95,11 @@ For an independent analysis of what DrugCLIP can and cannot do, see:
 
 The study systematically dissects what DrugCLIP's learned embeddings encode and examines its **capabilities**, **applicable scenarios**, and **generalization**. It may help answer questions about our work. In particular, the paper reports:
 
-- **Generalization (de-leakage benchmark).** Using a de-leakage protocol that removes train/test overlap, DrugCLIP generalizes to unseen proteins and chemistries rather than memorizing training data, recovering the correct bound ligand within the top 1% of 50,000 candidates for 55–75% of novel targets.
-- **Pocket embeddings.** The pocket embedding space is structurally coherent and robust to conformational variation; pocket-embedding similarity closely tracks geometric resemblance. Although not explicitly trained for it, the embeddings achieve state-of-the-art pocket-similarity search while running over 100× faster than conventional structural descriptors.
-- **Ligand embeddings.** Ligand-embedding similarity reflects a pocket-aware notion of chemical similarity rather than fingerprint identity alone — i.e., it does not simply reduce to Tanimoto fingerprint similarity, and captures a binding-context-aware notion of chemical relatedness.
-- **Conformer robustness.** The embedding space is conformer-robust, giving consistent representations across alternative conformers of the same pocket/ligand.
-- **Boundaries of applicability.** Performance depends on the accuracy of the input pocket structure, decreasing as it deviates from the bound (holo) conformation — i.e., across holo, apo, AlphaFold-derived, and predicted pockets. The authors attribute the drop across holo/apo/AlphaFold structures to sidechain reorientation, and the drop with predicted pockets to residue mismatch (differences in which residues are included in the pocket). Even under the most challenging setting, DrugCLIP retains some enrichment ability.
+- **Generalization (de-leakage benchmark).** DrugCLIP generalizes to unseen proteins and chemistries rather than memorizing training data — recovering the bound ligand within the top 1% of 50,000 candidates for 55–75% of novel targets.
+- **Pocket embeddings.** Structurally coherent and robust to conformational variation; similarity tracks geometric resemblance, and (though not trained for it) they reach state-of-the-art pocket-similarity search at >100× the speed of conventional descriptors.
+- **Ligand embeddings.** Capture a pocket-aware, binding-context notion of chemical similarity — not just Tanimoto fingerprint identity.
+- **Conformer robustness.** Embeddings stay consistent across alternative conformers of the same pocket/ligand.
+- **Boundaries of applicability.** Performance depends on input pocket accuracy, decreasing as the structure deviates from holo — across holo, apo, AlphaFold, and predicted pockets — due to sidechain reorientation and (for predicted pockets) residue mismatch. Some enrichment ability remains even in the hardest setting.
 
 Code and data for the analysis: https://github.com/JavierSanchez-Utges/DrugCLIP-pocket-analysis and https://zenodo.org/records/22791467
 
