@@ -85,6 +85,26 @@ bash test.sh
 select TASK to DUDE or PCBA in test.sh
 
 
+## Understanding DrugCLIP — recommended reading
+
+For an independent analysis of what DrugCLIP can and cannot do, see:
+
+> **Interrogating contrastive learning embeddings for structure-based virtual screening: a case study on DrugCLIP**
+> Javier S. Utgés, David T. Jones, Christine Orengo (UCL, Institute of Structural and Molecular Biology), bioRxiv 2026.
+> https://www.biorxiv.org/content/10.64898/2026.09.16.752029v1 — DOI: 10.64898/2026.09.16.752029
+
+The study systematically dissects what DrugCLIP's learned embeddings encode and examines its **capabilities**, **applicable scenarios**, and **generalization**. It may help answer questions about our work. In particular, the paper reports:
+
+- **Generalization (de-leakage benchmark).** Using a de-leakage protocol that removes train/test overlap, DrugCLIP generalizes to unseen proteins and chemistries rather than memorizing training data, recovering the correct bound ligand within the top 1% of 50,000 candidates for 55–75% of novel targets.
+- **Pocket embeddings.** The pocket embedding space is structurally coherent and robust to conformational variation; pocket-embedding similarity closely tracks geometric resemblance. Although not explicitly trained for it, the embeddings achieve state-of-the-art pocket-similarity search while running over 100× faster than conventional structural descriptors.
+- **Ligand embeddings.** Ligand-embedding similarity reflects a pocket-aware notion of chemical similarity rather than fingerprint identity alone — i.e., it does not simply reduce to Tanimoto fingerprint similarity, and captures a binding-context-aware notion of chemical relatedness.
+- **Conformer robustness.** The embedding space is conformer-robust, giving consistent representations across alternative conformers of the same pocket/ligand.
+- **Boundaries of applicability.** Performance depends on the accuracy of the input pocket structure, decreasing as it deviates from the bound (holo) conformation — i.e., across holo, apo, AlphaFold-derived, and predicted pockets. The authors attribute the drop across holo/apo/AlphaFold structures to sidechain reorientation, and the drop with predicted pockets to residue mismatch (differences in which residues are included in the pocket). Even under the most challenging setting, DrugCLIP retains some enrichment ability.
+
+Code and data for the analysis: https://github.com/JavierSanchez-Utges/DrugCLIP-pocket-analysis and https://zenodo.org/records/22791467
+
+If you have questions about our work, this paper's analysis is a good place to look.
+
 ## Other tools
 
 Pocket Pretraining: https://github.com/THU-ATOM/ProFSA
