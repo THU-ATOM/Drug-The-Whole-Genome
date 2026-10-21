@@ -2,8 +2,8 @@
 
 Encode molecular and protein-pocket structures and retrieve candidate molecules
 with DrugCLIP. This repository includes multi-fold inference, benchmark entry
-points and large-library screening utilities. It consumes prepared LMDB data;
-SMILES or a full protein structure alone are not interchangeable with those inputs.
+points and large-library screening utilities. Screening takes prepared molecule
+and pocket LMDB files as input.
 
 ## Documentation
 
@@ -13,8 +13,8 @@ SMILES or a full protein structure alone are not interchangeable with those inpu
 | [Quick start](docs/QUICKSTART.md) | Downloads, screening, encoding and benchmarks |
 | [Data formats](docs/DATA_FORMAT.md) | LMDB fields, cache/embedding shapes, scoring |
 | [Troubleshooting](docs/TROUBLESHOOTING.md) | Common mistakes and existing issue guidance |
-| [Applicability and reading](docs/METHOD_LIMITATIONS.md) | Independent analysis and interpretation limits |
-| [Refactor validation](docs/VALIDATION.md) | Changes, regression checks and remaining model validation |
+| [Applicability and reading](docs/METHOD_LIMITATIONS.md) | Pocket quality and recommended reading |
+| [Refactor validation](docs/VALIDATION.md) | Changes and test results |
 
 ## Screen a prepared pocket
 
@@ -31,9 +31,9 @@ SAVE_PATH='./results/screen.csv' bash retrieval.sh
 
 The default cached library is the distributed ChemDiv library (1,648,137 molecules).
 For a custom molecule LMDB, set `USE_CACHE=false` and `MOL_PATH` explicitly.
-Custom retrieval no longer overwrites distributed caches. Output is headerless
-`smiles,score`, sorted by score, retaining the top 2% with at least one row for a
-nonempty small library. The score is not an experimental affinity or probability.
+Output is headerless `smiles,score`, sorted by score, retaining the top 2% with
+at least one row for a nonempty small library. See [Scoring](docs/DATA_FORMAT.md#scoring)
+for the score definition.
 
 ## Benchmark
 
@@ -45,10 +45,8 @@ TASK=PCBA USE_FOLDS=true bash test.sh
 ```
 
 `USE_FOLDS=false` uses `WEIGHT_PATH` (default `data/benchmark_weights/90.pt`).
-`USE_FOLDS=true` now actually selects the six-fold ensemble; previous task methods
-silently forced this option off. See [Quick start](docs/QUICKSTART.md#benchmark)
-for exact input paths and output locations. Historical single-fold and six-fold
-results should not be compared as the same protocol.
+`USE_FOLDS=true` selects the six-fold ensemble. See
+[Quick start](docs/QUICKSTART.md#benchmark) for input paths and output locations.
 
 ## Understanding DrugCLIP
 
@@ -61,14 +59,12 @@ Utgés, David T. Jones and Christine Orengo, bioRxiv preprint (2026).
 [Data](https://zenodo.org/records/22791467)
 
 The study examines embedding geometry, generalization after overlap removal and
-performance under different pocket sources. Read both its reported capabilities
-and its limitations for apo/holo, AlphaFold and predicted pockets. Details and
-interpretation cautions are in [Applicability](docs/METHOD_LIMITATIONS.md).
+performance using apo/holo structures, AlphaFold models and predicted pockets.
+See [Recommended reading](docs/METHOD_LIMITATIONS.md) for context.
 
 ## Related tools
 
-- [Original DrugCLIP repository](https://github.com/bowen-gao/DrugCLIP): check its
-  own instructions and versions before transferring scripts or data between repos.
+- [Original DrugCLIP repository](https://github.com/bowen-gao/DrugCLIP)
 - [Pocket pretraining with ProFSA](https://github.com/THU-ATOM/ProFSA)
 - [Virtual-screening post-processing](https://github.com/THU-ATOM/DrugCLIP_screen_pipeline)
 - [Pocket detection](https://github.com/THU-ATOM/Pocket-Detection-of-DTWG)

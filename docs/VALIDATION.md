@@ -33,11 +33,11 @@ encoder outputs. Task methods are executed from their source AST with neural
 encoder doubles to avoid importing Uni-Core or requiring a GPU. Shell tests
 capture argv and check quoting, mode selection, range handling and invalid usage.
 
-These are software regression checks. They do not reproduce published metrics or
-establish real-model numerical equivalence. No checkpoint/GPU run or Docker build
-was performed for this refactor.
+Validation completed: 9 unit tests, shell argument checks, Python compilation,
+local documentation links and `git diff --check`. The tests use deterministic
+encoder outputs. Real-checkpoint GPU inference and the Docker build remain untested.
 
-## Before declaring a tested model release
+## Model validation to run
 
 Use the same input records, weight hashes, precision and seed on the base and
 refactor commits. Compare cached retrieval and custom retrieval scores/rankings;
@@ -46,10 +46,14 @@ and molecule encoder example, and inspect record counts and output shapes.
 
 For benchmarking, compare single-checkpoint mode to the base's effective mode.
 Validate six-fold mode separately; it was previously disabled internally. Record
-target-level metrics and test inputs rather than importing historical numbers
-from a document that describes a different protocol. Have a colleague follow
-QUICKSTART from a clean checkout and retain the environment and console log.
+target-level metrics, test inputs and the screening protocol. Have a colleague
+follow QUICKSTART from a clean checkout and retain the environment and console log.
 
-Remaining work includes a bundled scientific smoke fixture, a verified
-SMILES/conformer writer, validated pocket-to-chunk conversion, Docker rebuilding,
-and hardening the legacy large-library chunk/resume pipeline.
+The five-target record on `docs/dude-5target-6fold-test` describes a custom
+ChemDiv-background evaluation with an external active TSV. The current benchmark
+reads the target LMDB files directly; reproducing that record requires its
+corresponding data-preparation code and inputs.
+
+Further development work includes a small example dataset with reference outputs,
+a SMILES/conformer writer, a pocket-to-chunk converter, and improvements to the
+large-library chunk/resume pipeline.

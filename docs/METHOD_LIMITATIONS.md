@@ -1,4 +1,4 @@
-# Recommended reading and applicability
+# Pocket quality and recommended reading
 
 **Interrogating contrastive learning embeddings for structure-based virtual
 screening: a case study on DrugCLIP**, Javier S. Utgés, David T. Jones and
@@ -8,20 +8,18 @@ Christine Orengo, bioRxiv preprint (2026).
 - [Analysis code](https://github.com/JavierSanchez-Utges/DrugCLIP-pocket-analysis)
 - [Analysis data](https://zenodo.org/records/22791467)
 
-The authors study pocket/ligand embedding geometry, pocket similarity, training
-overlap removal, and sensitivity to pocket sources including apo/holo,
-AlphaFold and predicted pockets. Their reported results support both useful
-retrieval capability and limits under more realistic pocket inputs. See the
-preprint for the exact benchmark definitions, conditions and numerical claims.
+The study examines pocket and ligand embeddings, pocket similarity, generalization
+after removing training overlap, and screening with apo/holo structures,
+AlphaFold models and predicted pockets. These comparisons help assess how pocket
+definition and structure source affect retrieval performance.
 
-Use this work as context for interpreting performance. It does not establish
-that every poor result is a user error, that every new target will work, or that
-retrieval scores are experimental affinity measurements. Recovering a known
-ligand in the top fraction of a candidate library is not the same quantity as
-a prospective wet-lab hit rate.
+## Comparing screening results
 
-When reporting results, state the structure/pocket source, candidate and reference
-libraries, model/fold version, preprocessing, metrics and overlap policy. Do not
-call random background molecules experimentally established inactives. A custom
-ChemDiv-background evaluation should be named as such rather than equated with
-the standard DUD-E decoy protocol.
+Record the structure source, pocket residues, candidate and reference libraries,
+model weights, fold count and preprocessing settings. Keep these conditions fixed
+when comparing code versions. Report retrieval metrics with their benchmark
+definitions and evaluate experimental hit rates separately.
+
+Name the background set used in each evaluation. For example, a ChemDiv sample
+is a random-library background, while the standard DUD-E protocol uses its
+provided decoys. Record how training/test overlap was handled alongside the results.

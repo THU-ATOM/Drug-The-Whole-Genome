@@ -1,7 +1,7 @@
 # Input and output formats
 
-These are contracts read by the current loaders, not a claim that arbitrary
-SMILES or structures can be converted without chemical preprocessing.
+Retrieval and benchmarking read prepared molecule and pocket LMDB records.
+The fields and array shapes below follow the dataset loaders.
 
 ## Molecule LMDB for retrieval and benchmark
 
@@ -25,7 +25,7 @@ loader, so validate it before encoding.
 
 Document the standardization policy (salts, stereochemistry, protonation),
 conformer generation method/seed, failures and retained molecule IDs with any
-custom library. This refactor does not introduce a new SMILES-to-conformer writer.
+custom library.
 
 ## Pocket LMDB
 
@@ -38,17 +38,17 @@ The single-file key/value layout is the same. Each record contains:
 | `pocket_coordinates` | Finite `(N, 3)` coordinates aligned with the atoms |
 
 The loader removes hydrogens, crops to `--max-pocket-atoms`, and normalizes
-coordinates. Record structure source, chain, pocket definition and residue set.
-A full protein is not automatically a validated binding pocket.
+coordinates. Select a binding pocket from the protein and record its structure
+source, chain, pocket definition and residue set.
 
 The fallback in `unimol/encode_pockets.py` looks for ligand names between the
 underscore and extension of PDB filenames (for example `example_LIG.pdb`). It
 uses the first model and protein residues within 6 angstroms of ligand heavy
 atoms. It can silently skip failed files and will reuse an existing `pocket.lmdb`.
-Inspect records and counts; do not assume that directory processing succeeded
-for every PDB or that a ligand-free AlphaFold structure supports this path.
+Check the output record count against the input files. Ligand-free structures
+need a separate pocket-definition step.
 
-## Encoding and cache formats are different
+## Embedding and cache layouts
 
 | Artifact | Reader or writer | Layout |
 | --- | --- | --- |
@@ -58,15 +58,14 @@ for every PDB or that a ligand-free AlphaFold structure supports this path.
 | Chunk molecule input | `screening_chunk.py` | NumPy array `(N, D)`; matching reference array has the same `D` |
 | Chunk pocket input | `PocketDataset` | Pickle `(names, embeddings)` with a two-dimensional embedding array `(P, D)` |
 
-Do not pass three-dimensional pocket encoder output straight into chunked
-screening. Any conversion must preserve the same fold ordering, concatenation
-and scaling for molecule and pocket embeddings. Shape compatibility alone does
-not establish correct scores. This branch does not add a validated converter.
+Chunked screening requires two-dimensional pocket embeddings. When converting
+encoder output, use the same fold ordering, concatenation and scaling for both
+molecule and pocket embeddings.
 
 The directory LMDB v2 reader used by molecule encoding is a separate format with
 named splits, including `success`; retrieval and benchmark use the single-file
-loader. HDF5 resume masks track completed rows, not the identity of inputs or
-weights. Use a fresh output location when either changes.
+loader. HDF5 resume masks track completed rows. Use a fresh output location when
+the inputs, row order or weights change.
 
 `utils/retrieve_chunk.py` requires `smiles` and `oid` fields and uses LMDB cursor
 order to reconstruct rows. The legacy retrieval loader instead looks up numeric
@@ -81,6 +80,6 @@ the candidate library median and median absolute deviation (MAD). It then takes
 the maximum over pockets. Eight-fold retrieval omits that MAD step in the current
 implementation. Chunked screening uses its explicit reference library for MAD.
 
-The resulting scales depend on pipeline and background. Scores should not be
-read as experimental affinities, probabilities, or directly comparable values
-across unrelated reference libraries.
+Scores rank candidates within the chosen pipeline and background library. They
+are not calibrated affinities or binding probabilities. Compare numerical scores
+using the same reference library and processing settings.
