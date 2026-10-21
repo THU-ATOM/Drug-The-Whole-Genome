@@ -1,25 +1,20 @@
-
-echo "First argument: $1"
-
-device=$1
-
-results_path="./test"  # replace to your results path
-batch_size=256
-mol_path=$2 # path to the molecule file
-save_path=$3 # path to the save dir
-
-
-
-
-
-CUDA_VISIBLE_DEVICES=$device python ./unimol/encode_mols.py --user-dir ./unimol $data_path "./dict" --valid-subset test \
-       --results-path $results_path \
-       --cpu \
-       --num-workers 0 --ddp-backend=c10d --batch-size $batch_size \
-       --task drugclip --loss in_batch_softmax --arch drugclip  \
-       --max-pocket-atoms 256 \
-       --seed 1 \
-       --log-interval 100 --log-format simple \
-       --mol-path $mol_path \
-       --save-dir $save_path \
-       --start 0 --end 30000 --write-h5
+#!/usr/bin/env bash
+set -euo pipefail
+if (( $# != 3 )); then
+    echo "Usage: bash encode_mols.sh GPU_ID MOL_PATH SAVE_DIR" >&2
+    exit 2
+fi
+export CUDA_VISIBLE_DEVICES="$1"
+range_args=(--start "${START:-0}")
+if [[ -n "${END:-}" ]]; then range_args+=(--end "$END"); fi
+device_args=()
+case "${DEVICE:-cpu}" in
+    cpu) device_args+=(--cpu) ;;
+    cuda) ;;
+    *) echo "DEVICE must be cpu or cuda" >&2; exit 2 ;;
+esac
+"${PYTHON:-python}" ./unimol/encode_mols.py ./dict --user-dir ./unimol --valid-subset test \
+    "${device_args[@]}" --num-workers 0 --ddp-backend=c10d --batch-size "${BATCH_SIZE:-256}" \
+    --task drugclip --loss in_batch_softmax --arch drugclip --max-pocket-atoms 256 \
+    --seed 1 --log-interval 100 --log-format simple \
+    --mol-path "$2" --save-dir "$3" "${range_args[@]}" --write-h5

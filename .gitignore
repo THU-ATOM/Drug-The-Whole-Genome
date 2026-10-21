@@ -4,3 +4,6 @@ data
 **/py_scripts
 *.txt
 test*
+!tests/
+!tests/test_inference.py
+!tests/test_wrappers.sh

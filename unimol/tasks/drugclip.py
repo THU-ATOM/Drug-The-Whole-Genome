@@ -29,6 +29,7 @@ from unimol.data import (AffinityDataset, CroppingPocketDataset,
 from rdkit.ML.Scoring.Scoring import CalcBEDROC, CalcAUC, CalcEnrichment
 from sklearn.metrics import roc_curve
 import h5py
+from unimol.inference_config import fold_paths, write_ranked_results
 
 
 logger = logging.getLogger(__name__)
@@ -809,7 +810,7 @@ class DrugCLIP(UnicoreTask):
 
         # 6 folds
 
-        ckpts = [f"./data/model_weights/6_folds/fold_{i}.pt" for i in range(6)]
+        ckpts, _ = fold_paths("6_folds")
 
         res_list = []
         for fold, ckpt in enumerate(ckpts[:6]):
@@ -1015,7 +1016,6 @@ class DrugCLIP(UnicoreTask):
 
     def test_pcba(self, model, use_folds=True, **kwargs):
 
-        use_folds = False
         targets = os.listdir("./data/lit_pcba/")
 
         #print(targets)
@@ -1180,7 +1180,7 @@ class DrugCLIP(UnicoreTask):
 
         # 6 folds
 
-        ckpts = [f"./data/model_weights/6_folds/fold_{i}.pt" for i in range(6)]
+        ckpts, _ = fold_paths("6_folds")
 
 
 
@@ -1315,12 +1315,12 @@ class DrugCLIP(UnicoreTask):
             "0.02": [],
             "0.05": [],
         }
+        completed_targets = []
         ef_dic = {}
         bedroc_dic = {}
         for i,target in enumerate(targets):
             print(i)
             #try:
-            use_folds = False
             if use_folds:
                 res = self.test_dude_target_ensemble(target, model)
             else:
@@ -1331,6 +1331,7 @@ class DrugCLIP(UnicoreTask):
                 continue
             auc, bedroc, ef, re, res_single, labels = res#self.test_dude_target(target, model)
 
+            completed_targets.append(target)
             auc_list.append(auc)
             bedroc_list.append(bedroc)
             for key in ef:
@@ -1341,6 +1342,8 @@ class DrugCLIP(UnicoreTask):
             labels_list.append(labels)
             ef_dic[target] = ef["0.01"]
             bedroc_dic[target] = bedroc
+        if not completed_targets:
+            raise ValueError("No DUD-E targets were evaluated; check data/DUD-E inputs")
         res = np.concatenate(res_list, axis=0)
         labels = np.concatenate(labels_list, axis=0)
         print(len(auc_list))
@@ -1355,7 +1358,7 @@ class DrugCLIP(UnicoreTask):
 
         # save printed results to csv
         
-        targets = targets
+        targets = completed_targets
         ef = ef_list["0.01"]
 
         # save to csv
@@ -1471,7 +1474,7 @@ class DrugCLIP(UnicoreTask):
 
         # 6 folds
         
-        ckpts = [f"./data/model_weights/6_folds/fold_{i}.pt" for i in range(6)]
+        ckpts, _ = fold_paths("6_folds")
 
         if dataset_type is None:
             dataset_type = 2 if os.path.isdir(mol_path) else 1
@@ -1613,7 +1616,7 @@ class DrugCLIP(UnicoreTask):
     def encode_pockets_multi_folds(self, model, pocket_dir, pocket_path, **kwargs):
         print(pocket_path)
         # 6 folds
-        ckpts = [f"./data/model_weights/6_folds/fold_{i}.pt" for i in range(6)]
+        ckpts, _ = fold_paths("6_folds")
 
 
         #ckpts = ckpts[:1]
@@ -1683,22 +1686,7 @@ class DrugCLIP(UnicoreTask):
     def retrieval_multi_folds(self, model, pocket_path, save_path, mol_data_path, fold_version, use_cache=True, use_cuda=True, **kwargs):
         
 
-        if fold_version=="6_folds":
-            # 6 folds
-            ckpts = [f"./data/model_weights/6_folds/fold_{i}.pt" for i in range(6)]
-
-            caches = [f"./data/encoded_mol_embs/6_folds/fold{i}.pkl" for i in range(6)]
-        
-        elif fold_version=="8_folds":
-
-            ckpts = [f"./data/model_weights/8_folds/fold_{i}.pt" for i in range(8)]
-
-            caches = [f"./data/encoded_mol_embs/8_folds/fold{i}.pkl" for i in range(8)]
-        elif fold_version=="6_folds_filtered":
-            ckpts = [f"./data/model_weights/6_folds/fold_{i}.pt" for i in range(6)]
-
-            caches = [f"./data/encoded_mol_embs/6_folds_filtered/fold{i}.pkl" for i in range(6)]
-
+        ckpts, caches = fold_paths(fold_version)
 
         res_list = []
 
@@ -1749,8 +1737,7 @@ class DrugCLIP(UnicoreTask):
                     mol_reps.append(mol_emb)
                     mol_names.extend(sample["smi_name"])
                 mol_reps = np.concatenate(mol_reps, axis=0)
-                with open(mol_cache_path, "wb") as f:
-                    pickle.dump([mol_reps, mol_names], f)
+                # Custom libraries must never overwrite the distributed cache.
 
             
 
@@ -1803,22 +1790,7 @@ class DrugCLIP(UnicoreTask):
             res_new = 0.6745 * (res_new - medians) / (mads + 1e-6)
 
         res_max = np.max(res_new, axis=0)
-        ret_names = mol_names
-
-        lis = []
-        for i, score in enumerate(res_max):
-            lis.append((score, ret_names[i]))
-        lis.sort(key=lambda x:x[0], reverse=True)
-
-        # get top 1%
-
-        lis = lis[:int(len(lis) * 0.02)]
-
-        
-        res_path = save_path
-        with open(res_path, "w") as f:
-            for score, name in lis:
-                f.write(f"{name},{score}\n")
+        write_ranked_results(res_max, mol_names, save_path)
 
         return
         

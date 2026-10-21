@@ -58,7 +58,7 @@ Part of the code is modified from Uni-Mol, which is licensed under the MIT Licen
 - **License:** MIT License
 - **Original Repository:** https://github.com/dptech-corp/Uni-Mol
 
-The MIT License is permissive and compatible with the CC BY 4.0 license. The full text of the Uni-Mol MIT License can be found in [unimol/LICENSE](unimol/LICENSE).
+The MIT License is permissive and compatible with the CC BY 4.0 license. The full text of the Uni-Mol MIT License can be found in [unimol/LICENSE](../unimol/LICENSE).
 
 ### Other Dependencies
 
