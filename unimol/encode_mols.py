@@ -4,6 +4,7 @@
 # This source code is licensed under the MIT license found in the
 # LICENSE file in the root directory of this source tree.
 
+import torch
 from unicore import distributed_utils, options
 from inference_utils import configure_logging, setup_inference
 from pathlib import Path
@@ -22,11 +23,12 @@ def main(args):
         raise ValueError("Require 0 <= --start < --end (or omit --end)")
     Path(args.save_dir).mkdir(parents=True, exist_ok=True)
     task, model, use_cuda = setup_inference(args)
-    task.encode_mols_multi_folds(
-        model, args.batch_size, args.mol_path, args.save_dir, use_cuda,
-        write_npy=args.write_npy, write_h5=args.write_h5,
-        start=args.start, end=args.end,
-    )
+    with torch.no_grad():
+        task.encode_mols_multi_folds(
+            model, args.batch_size, args.mol_path, args.save_dir, use_cuda,
+            write_npy=args.write_npy, write_h5=args.write_h5,
+            start=args.start, end=args.end,
+        )
 
 
 def cli_main():

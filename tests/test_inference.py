@@ -9,6 +9,8 @@ import ast
 import contextlib
 import importlib.util
 import io
+import json
+import logging
 import os
 from pathlib import Path
 import pickle
@@ -32,6 +34,8 @@ def load_file(name, relative):
 
 config = load_file('inference_config', 'unimol/inference_config.py')
 setup = load_file('inference_utils', 'unimol/inference_utils.py')
+checks = load_file('inference_checks', 'unimol/inference_checks.py')
+benchmark_utils = load_file('benchmark_utils', 'unimol/benchmark_utils.py')
 
 
 def task_method(name, **globals_extra):
@@ -40,6 +44,9 @@ def task_method(name, **globals_extra):
     node = next(n for n in cls.body if isinstance(n, ast.FunctionDef) and n.name == name)
     namespace = dict(np=np, os=os, pickle=pickle, fold_paths=config.fold_paths,
                      write_ranked_results=config.write_ranked_results, tqdm=lambda x: x)
+    namespace.update({key: getattr(checks, key) for key in
+                      ('validate_embeddings', 'encoding_manifest', 'completed_prefix', 'check_resume_file')})
+    namespace.update(run_benchmark=benchmark_utils.run_benchmark, logger=logging.getLogger('tests'))
     namespace.update(globals_extra)
     exec(compile(ast.Module(body=[node], type_ignores=[]), str(ROOT / 'unimol/tasks/drugclip.py'), 'exec'), namespace)
     return namespace[name]
@@ -142,6 +149,8 @@ class TaskRegressionTests(unittest.TestCase):
                 with self.subTest(benchmark=benchmark, folds=folds), temp_cwd():
                     data = Path('data/DUD-E' if benchmark == 'dude' else 'data/lit_pcba')
                     (data / 'target').mkdir(parents=True)
+                    (data / 'target' / 'mols.lmdb').touch()
+                    (data / 'target' / ('pocket.lmdb' if benchmark == 'dude' else 'pockets.lmdb')).touch()
                     fake = MagicMock()
                     result = (0.8, 0.6, metric, metric)
                     if benchmark == 'dude':
@@ -158,16 +167,18 @@ class TaskRegressionTests(unittest.TestCase):
         metric = {key: 1. for key in ('0.005', '0.01', '0.02', '0.05')}
         with temp_cwd():
             Path('data/DUD-E/valid').mkdir(parents=True)
+            Path('data/DUD-E/valid/mols.lmdb').touch()
+            Path('data/DUD-E/valid/pocket.lmdb').touch()
             Path('data/DUD-E/missing').mkdir()
-            fake, pandas = MagicMock(), MagicMock()
-            fake.test_dude_target.side_effect = lambda name, model: (
-                (.8, .6, metric, metric, np.array([1., 0.]), np.array([1, 0]))
-                if name == 'valid' else None)
-            with patch.dict(sys.modules, {'pandas': pandas}), contextlib.redirect_stdout(io.StringIO()):
-                task_method('test_dude')(fake, None, use_folds=False)
-            self.assertEqual(pandas.DataFrame.call_args.args[0]['target'], ['valid'])
-            fake.test_dude_target.side_effect = lambda *args: None
-            with contextlib.redirect_stdout(io.StringIO()), self.assertRaisesRegex(ValueError, 'No DUD-E targets'):
+            fake = MagicMock()
+            fake.test_dude_target.return_value = (.8, .6, metric, metric, np.array([1., 0.]), np.array([1, 0]))
+            with contextlib.redirect_stdout(io.StringIO()):
+                output = task_method('test_dude')(fake, None, use_folds=False)
+            report = json.loads((output / 'summary.json').read_text())
+            self.assertEqual(report['counts'], dict(completed=1, skipped=1, failed=0))
+            self.assertEqual([r['target'] for r in report['records'] if r['status'] == 'completed'], ['valid'])
+            fake.test_dude_target.return_value = None
+            with contextlib.redirect_stdout(io.StringIO()), self.assertRaisesRegex(ValueError, 'No DUDE targets'):
                 task_method('test_dude')(fake, None, use_folds=False)
 
     def test_custom_retrieval_preserves_cache_and_matches_cached_scoring(self):
@@ -194,6 +205,12 @@ class TaskRegressionTests(unittest.TestCase):
                 method(fake, model, 'pocket.lmdb', 'custom.csv', 'custom.lmdb', '6_folds', use_cache=False, use_cuda=False)
                 method(fake, model, 'pocket.lmdb', 'cached.csv', '', '6_folds', use_cache=True, use_cuda=False)
             self.assertEqual(Path('custom.csv').read_bytes(), Path('cached.csv').read_bytes())
+            # Same molecules and embeddings, but a different row order in one fold.
+            Path(caches[1]).write_bytes(pickle.dumps([mols[::-1], names[::-1]]))
+            with contextlib.redirect_stdout(io.StringIO()), self.assertRaisesRegex(ValueError, 'fold1.pkl.*molecule order'):
+                method(fake, model, 'pocket.lmdb', 'bad.csv', '', '6_folds', use_cache=True, use_cuda=False)
+            self.assertFalse(Path('bad.csv').exists())
+            Path(caches[1]).write_bytes(before[caches[1]])
             for name in caches:
                 self.assertEqual(Path(name).read_bytes(), before[name])
             scores = pockets @ mols.T

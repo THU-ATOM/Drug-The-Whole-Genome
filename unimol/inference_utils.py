@@ -15,7 +15,7 @@ def configure_logging():
     )
 
 
-def setup_inference(args, load_checkpoint=False, half_on_cpu=True):
+def setup_inference(args, load_checkpoint=False, half_on_cpu=True, require_cuda=False):
     """Build an eval model, preserving each caller's precision policy.
 
     Multi-fold tasks load their own checkpoints. Single-checkpoint benchmarking
@@ -25,6 +25,9 @@ def setup_inference(args, load_checkpoint=False, half_on_cpu=True):
     from unicore import checkpoint_utils, tasks
 
     use_cuda = torch.cuda.is_available() and not args.cpu
+    if require_cuda and not use_cuda:
+        raise RuntimeError("This command requires CUDA. Check torch.cuda.is_available(), "
+                           "CUDA_VISIBLE_DEVICES and the installed PyTorch/CUDA versions.")
     if use_cuda:
         torch.cuda.set_device(args.device_id)
     state = None

@@ -42,11 +42,12 @@ coordinates. Select a binding pocket from the protein and record its structure
 source, chain, pocket definition and residue set.
 
 The fallback in `unimol/encode_pockets.py` looks for ligand names between the
-underscore and extension of PDB filenames (for example `example_LIG.pdb`). It
-uses the first model and protein residues within 6 angstroms of ligand heavy
-atoms. It can silently skip failed files and will reuse an existing `pocket.lmdb`.
-Check the output record count against the input files. Ligand-free structures
-need a separate pocket-definition step.
+last underscore and extension of PDB filenames (for example `example_LIG.pdb`).
+It uses the first model and protein residues within 6 angstroms of ligand heavy
+atoms. Failed files are logged with their names and reasons; a summary reports
+successful files, failed files and extracted pockets. If no pocket is extracted,
+the command fails before writing an LMDB. An existing `pocket.lmdb` is reused.
+Ligand-free structures need a separate pocket-definition step.
 
 ## Embedding and cache layouts
 
@@ -54,7 +55,7 @@ need a separate pocket-definition step.
 | --- | --- | --- |
 | Retrieval fold cache | `retrieval_multi_folds` | Pickle pair `[mol_reps, mol_names]`, `(N, 128)` embeddings for one fold |
 | Pocket encoder output | `encode_pockets.py` | Pickle pair `(pocket_names, pocket_reps)`, `(P, 6, 128)` |
-| Molecule HDF5 | `encode_mols.py` | `mol_reps` with `(N, 768)` plus per-fold resume masks |
+| Molecule HDF5 | `encode_mols.py` | `mol_reps` with `(N, 768)` plus per-fold resume masks and an `encoding_manifest` attribute |
 | Chunk molecule input | `screening_chunk.py` | NumPy array `(N, D)`; matching reference array has the same `D` |
 | Chunk pocket input | `PocketDataset` | Pickle `(names, embeddings)` with a two-dimensional embedding array `(P, D)` |
 
@@ -64,8 +65,12 @@ molecule and pocket embeddings.
 
 The directory LMDB v2 reader used by molecule encoding is a separate format with
 named splits, including `success`; retrieval and benchmark use the single-file
-loader. HDF5 resume masks track completed rows. Use a fresh output location when
-the inputs, row order or weights change.
+loader. The HDF5 manifest records SHA-256 hashes of the input, ordered checkpoints,
+dictionaries and preprocessing source files, plus slice, seed, precision and device
+settings. For directory LMDB v2, `data.mdb` includes records and split definitions;
+the mutable `lock.mdb` file is excluded. Completion masks must form a contiguous
+prefix of completed rows. Changed manifests, gaps and old files without metadata
+require a fresh output location.
 
 `utils/retrieve_chunk.py` requires `smiles` and `oid` fields and uses LMDB cursor
 order to reconstruct rows. The legacy retrieval loader instead looks up numeric

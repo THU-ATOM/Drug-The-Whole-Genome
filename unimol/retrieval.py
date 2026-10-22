@@ -4,6 +4,7 @@
 # This source code is licensed under the MIT license found in the
 # LICENSE file in the root directory of this source tree.
 
+import torch
 from unicore import distributed_utils, options
 from inference_utils import configure_logging, setup_inference
 from inference_config import FOLD_VERSIONS, str2bool, validate_retrieval_inputs
@@ -15,10 +16,11 @@ def main(args):
     validate_retrieval_inputs(args.pocket_path, args.mol_path, args.fold_version,
                               args.use_cache, args.save_path)
     task, model, use_cuda = setup_inference(args, half_on_cpu=False)
-    task.retrieval_multi_folds(
-        model, args.pocket_path, args.save_path, args.mol_path,
-        fold_version=args.fold_version, use_cache=args.use_cache, use_cuda=use_cuda,
-    )
+    with torch.no_grad():
+        task.retrieval_multi_folds(
+            model, args.pocket_path, args.save_path, args.mol_path,
+            fold_version=args.fold_version, use_cache=args.use_cache, use_cuda=use_cuda,
+        )
 
 
 def cli_main():

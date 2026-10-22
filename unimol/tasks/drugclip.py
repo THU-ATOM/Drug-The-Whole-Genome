@@ -30,6 +30,9 @@ from rdkit.ML.Scoring.Scoring import CalcBEDROC, CalcAUC, CalcEnrichment
 from sklearn.metrics import roc_curve
 import h5py
 from unimol.inference_config import fold_paths, write_ranked_results
+from unimol.inference_checks import (validate_embeddings, encoding_manifest,
+                                     completed_prefix, check_resume_file)
+from unimol.benchmark_utils import run_benchmark
 
 
 logger = logging.getLogger(__name__)
@@ -1015,51 +1018,13 @@ class DrugCLIP(UnicoreTask):
     
 
     def test_pcba(self, model, use_folds=True, **kwargs):
+        evaluate = self.test_pcba_target_ensemble if use_folds else self.test_pcba_target
+        return run_benchmark(
+            "PCBA", lambda target: evaluate(target, model), use_folds,
+            results_dir=kwargs.get("results_dir", "./results/benchmarks"),
+            targets=kwargs.get("targets"), metadata=kwargs.get("metadata"),
+        )
 
-        targets = os.listdir("./data/lit_pcba/")
-
-        #print(targets)
-        auc_list = []
-        ef_list = []
-        bedroc_list = []
-
-        re_list = {
-            "0.005": [],
-            "0.01": [],
-            "0.02": [],
-            "0.05": []
-        }
-        ef_list = {
-            "0.005": [],
-            "0.01": [],
-            "0.02": [],
-            "0.05": []
-        }
-        for target in targets:
-            if use_folds:
-                auc, bedroc, ef, re = self.test_pcba_target_ensemble(target, model)
-            else:
-                auc, bedroc, ef, re = self.test_pcba_target(target, model)
-            auc_list.append(auc)
-            bedroc_list.append(bedroc)
-            for key in ef:
-                ef_list[key].append(ef[key])
-            # print("re", re)
-            # print("ef", ef)
-            for key in re:
-                re_list[key].append(re[key])
-        print(auc_list)
-        print(ef_list)
-
-        print("auc mean", np.mean(auc_list))
-        print("bedroc mean", np.mean(bedroc_list))
-        for key in ef_list:
-            print("ef",key, "mean", np.mean(ef_list[key]))
-        for key in re_list:
-            print("re",key, "mean", np.mean(re_list[key]))
-
-        return 
-    
     def test_dude_target(self, target, model, **kwargs):
 
         data_path = "./data/DUD-E/" + target + "/mols.lmdb"
@@ -1294,86 +1259,13 @@ class DrugCLIP(UnicoreTask):
     
 
     def test_dude(self, model, use_folds=True, **kwargs):
+        evaluate = self.test_dude_target_ensemble if use_folds else self.test_dude_target
+        return run_benchmark(
+            "DUDE", lambda target: evaluate(target, model), use_folds,
+            results_dir=kwargs.get("results_dir", "./results/benchmarks"),
+            targets=kwargs.get("targets"), metadata=kwargs.get("metadata"),
+        )
 
-
-        targets = os.listdir("./data/DUD-E")
-        #targets = os.listdir("/drug/schrodinger_DUD-E/")
-        auc_list = []
-        bedroc_list = []
-        ef_list = []
-        res_list= []
-        labels_list = []
-        re_list = {
-            "0.005": [],
-            "0.01": [],
-            "0.02": [],
-            "0.05": [],
-        }
-        ef_list = {
-            "0.005": [],
-            "0.01": [],
-            "0.02": [],
-            "0.05": [],
-        }
-        completed_targets = []
-        ef_dic = {}
-        bedroc_dic = {}
-        for i,target in enumerate(targets):
-            print(i)
-            #try:
-            if use_folds:
-                res = self.test_dude_target_ensemble(target, model)
-            else:
-                res = self.test_dude_target(target, model)
-            #except:
-            #    continue
-            if res is None:
-                continue
-            auc, bedroc, ef, re, res_single, labels = res#self.test_dude_target(target, model)
-
-            completed_targets.append(target)
-            auc_list.append(auc)
-            bedroc_list.append(bedroc)
-            for key in ef:
-                ef_list[key].append(ef[key])
-            for key in re_list:
-                re_list[key].append(re[key])
-            res_list.append(res_single)
-            labels_list.append(labels)
-            ef_dic[target] = ef["0.01"]
-            bedroc_dic[target] = bedroc
-        if not completed_targets:
-            raise ValueError("No DUD-E targets were evaluated; check data/DUD-E inputs")
-        res = np.concatenate(res_list, axis=0)
-        labels = np.concatenate(labels_list, axis=0)
-        print(len(auc_list))
-        print("auc mean", np.mean(auc_list))
-        print("bedroc mean", np.mean(bedroc_list))
-
-        for key in ef_list:
-            print("ef", key, "mean", np.mean(ef_list[key]))
-
-        for key in re_list:
-            print("re", key, "mean",  np.mean(re_list[key]))
-
-        # save printed results to csv
-        
-        targets = completed_targets
-        ef = ef_list["0.01"]
-
-        # save to csv
-        import pandas as pd
-        df = pd.DataFrame({"target": targets, "ef": ef})
-        df.to_csv("Holo_RealPocket_GenPack.csv", index=False)
-            
-        
-        
-        return
-    
-    
-    
-    
-    
     def encode_mols_once(self, model, data_path, cache_path, atoms, coords, **kwargs):
         
         # cache path is embdir/data_path.pkl
@@ -1498,6 +1390,17 @@ class DrugCLIP(UnicoreTask):
         # caches = ["fold0.pkl", "fold1.pkl", "fold2.pkl", "fold3.pkl", "fold4.pkl", "fold5.pkl"]
         # caches = [prefix + cache for cache in caches]
 
+        manifest = None
+        if write_h5:
+            logger.info("Hashing molecule input, checkpoints and dictionaries for resume validation")
+            settings = {key: getattr(self.args, key, None) for key in
+                        ("seed", "fp16", "max_seq_len", "max_atoms", "arch")}
+            settings.update(start=kwargs.get("start", 0), end=kwargs.get("end"),
+                            dataset_type=dataset_type, use_cuda=bool(use_cuda),
+                            torch_version=str(torch.__version__))
+            manifest = encoding_manifest(mol_path, ckpts, settings,
+                                         [os.path.join(self.args.data, "dict_mol.txt"),
+                                          os.path.join(self.args.data, "dict_pkt.txt")])
         mol_reps_all = []
 
         for fold, ckpt in enumerate(ckpts):
@@ -1521,13 +1424,15 @@ class DrugCLIP(UnicoreTask):
             mol_ids_subsets = []
             
             # generate mol data
+            hdf5 = None
             try:
                 if write_h5:
                     hdf5 = h5py.File(os.path.join(save_dir,f"mol_reps{kwargs.get('start', '')}{kwargs.get('end', '')}.h5"), "a")
+                    check_resume_file(hdf5, manifest, len(mol_dataset))
                     dset = hdf5.require_dataset("mol_reps", shape=(len(mol_dataset), 768), dtype=np.float32, chunks=True)
                     kset = hdf5.require_dataset("fold{}".format(fold), shape=(len(mol_dataset),), dtype=np.bool_, chunks=True, compression="lzf")
                     written_mask = kset[:]
-                    num_written = np.sum(written_mask)
+                    num_written = completed_prefix(written_mask, f"{h5_path}: fold{fold}")
                     if num_written == len(mol_dataset):
                         if write_npy:
                             mol_reps = dset[:, fold*128:(fold+1)*128]
@@ -1564,8 +1469,12 @@ class DrugCLIP(UnicoreTask):
                     mol_emb = model.mol_project(mol_encoder_rep)
                     mol_emb = mol_emb / mol_emb.norm(dim=-1, keepdim=True)
                     mol_emb = mol_emb.detach().cpu().numpy()
+                    if mol_emb.ndim != 2 or mol_emb.shape[1] != 128 or not np.isfinite(mol_emb).all():
+                        raise ValueError(f"Invalid molecule embeddings in fold {fold}, batch {batch}")
                     if write_h5:
                         dset[num_written+batch*bsz:num_written+batch*bsz+len(mol_emb), fold*128:(fold+1)*128] = mol_emb
+                        # Persist embeddings before marking rows complete.
+                        hdf5.flush()
                         kset[num_written+batch*bsz:num_written+batch*bsz+len(mol_emb)] = 1
                         if batch % flush_interval == 0:
                             hdf5.flush()
@@ -1587,14 +1496,8 @@ class DrugCLIP(UnicoreTask):
                     # add a dimension to mol_reps
                     mol_reps = np.expand_dims(mol_reps, axis=1)
                     mol_reps_all.append(mol_reps)
-            except Exception as e:
-                print(e)
-                if write_h5:
-                    hdf5.close()
-                raise e
             finally:
-                if write_h5:
-                    hdf5.flush()
+                if hdf5 is not None:
                     hdf5.close()
         
         # concate
@@ -1689,6 +1592,8 @@ class DrugCLIP(UnicoreTask):
         ckpts, caches = fold_paths(fold_version)
 
         res_list = []
+        reference_names = None
+        reference_width = None
 
         pocket_data_path = pocket_path
 
@@ -1739,7 +1644,12 @@ class DrugCLIP(UnicoreTask):
                 mol_reps = np.concatenate(mol_reps, axis=0)
                 # Custom libraries must never overwrite the distributed cache.
 
-            
+            source = mol_cache_path if use_cache else f"{mol_data_path} (fold {fold})"
+            names = validate_embeddings(mol_reps, mol_names, source,
+                                        reference_names, reference_width)
+            if reference_names is None:
+                reference_names = names
+                reference_width = mol_reps.shape[1]
 
             # generate pocket data (dataset already loaded outside loop)
             pocket_reps = []
@@ -1773,6 +1683,8 @@ class DrugCLIP(UnicoreTask):
             mol_reps = mol_reps.astype(np.float32)
             pocket_reps = pocket_reps.astype(np.float32)
 
+            if pocket_reps.shape[1] != reference_width or not np.isfinite(pocket_reps).all():
+                raise ValueError(f"{pocket_path}: invalid pocket embeddings for fold {fold}")
             res_list.append(pocket_reps @ mol_reps.T)
 
 
@@ -1790,7 +1702,7 @@ class DrugCLIP(UnicoreTask):
             res_new = 0.6745 * (res_new - medians) / (mads + 1e-6)
 
         res_max = np.max(res_new, axis=0)
-        write_ranked_results(res_max, mol_names, save_path)
+        write_ranked_results(res_max, reference_names, save_path)
 
         return
         

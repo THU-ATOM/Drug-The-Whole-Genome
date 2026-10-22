@@ -11,7 +11,7 @@ printf '%s\n' "$@" > "$CAPTURE"
 STUB
 chmod +x "$fake_python"
 export CAPTURE="$capture" PYTHON="$fake_python"
-unset END START DEVICE USE_FOLDS TASK
+unset END START DEVICE USE_FOLDS TASK TARGETS
 
 expect_pair() {
     local previous='' current
@@ -39,9 +39,12 @@ expect_absent --cpu
 POCKET_PATH='pocket.lmdb' DEVICE=cpu bash retrieval.sh
 expect_absent --fp16
 
-TASK=DUDE USE_FOLDS=true WEIGHT_PATH='weights/my model.pt' bash test.sh
+TARGETS='target_a target_b' RESULTS_PATH='results/my run' TASK=DUDE USE_FOLDS=true WEIGHT_PATH='weights/my model.pt' bash test.sh
 expect_pair --test-task DUDE
 expect_pair --use-folds true
+expect_pair --targets target_a
+expect_pair target_a target_b
+expect_pair --results-path 'results/my run'
 expect_pair --path 'weights/my model.pt'
 bash test.sh
 expect_pair --use-folds false

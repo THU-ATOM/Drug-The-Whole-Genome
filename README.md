@@ -11,6 +11,7 @@ and pocket LMDB files as input.
 | --- | --- |
 | [Installation](docs/INSTALL.md) | Environment recipe, import checks, CPU/GPU scope |
 | [Quick start](docs/QUICKSTART.md) | Downloads, screening, encoding and benchmarks |
+| [Small example](examples/mini_screen/README.md) | Prepare 12 molecules, screen one pocket and check output |
 | [Data formats](docs/DATA_FORMAT.md) | LMDB fields, cache/embedding shapes, scoring |
 | [Troubleshooting](docs/TROUBLESHOOTING.md) | Common mistakes and existing issue guidance |
 | [Applicability and reading](docs/METHOD_LIMITATIONS.md) | Pocket quality and recommended reading |
@@ -45,7 +46,9 @@ TASK=PCBA USE_FOLDS=true bash test.sh
 ```
 
 `USE_FOLDS=false` uses `WEIGHT_PATH` (default `data/benchmark_weights/90.pt`).
-`USE_FOLDS=true` selects the six-fold ensemble. See
+`USE_FOLDS=true` selects the six-fold ensemble. Set `TARGETS='target_a target_b'`
+to evaluate selected targets. Each run writes `metrics.csv` and `summary.json`
+under a new subdirectory of `RESULTS_PATH` (default `results/benchmarks`). See
 [Quick start](docs/QUICKSTART.md#benchmark) for input paths and output locations.
 
 ## Understanding DrugCLIP

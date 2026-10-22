@@ -6,17 +6,25 @@
 
 from unicore import distributed_utils, options
 from inference_utils import configure_logging, setup_inference
-from inference_config import str2bool
+from inference_config import str2bool, fold_paths
+from inference_checks import sha256_file
+from benchmark_utils import select_targets
+import torch
 
 configure_logging()
 
 
 def main(args):
-    task, model, _ = setup_inference(args, load_checkpoint=not args.use_folds)
-    if args.test_task == "DUDE":
-        task.test_dude(model, use_folds=args.use_folds)
-    elif args.test_task == "PCBA":
-        task.test_pcba(model, use_folds=args.use_folds)
+    root = "data/DUD-E" if args.test_task == "DUDE" else "data/lit_pcba"
+    targets = select_targets(root, args.targets)
+    weights = fold_paths("6_folds")[0] if args.use_folds else [args.path]
+    metadata = {"arguments": {key: str(value) for key, value in vars(args).items()},
+                "checkpoints": [{"path": path, "sha256": sha256_file(path)} for path in weights]}
+    task, model, _ = setup_inference(args, load_checkpoint=not args.use_folds, require_cuda=True)
+    evaluate = task.test_dude if args.test_task == "DUDE" else task.test_pcba
+    with torch.no_grad():
+        evaluate(model, use_folds=args.use_folds, targets=targets,
+                 results_dir=args.results_path or "./results/benchmarks", metadata=metadata)
 
 
 def cli_main():
@@ -26,6 +34,7 @@ def cli_main():
     parser = options.get_validation_parser()
     parser.add_argument("--test-task", type=str, default="DUDE", help="test task", choices=["DUDE", "PCBA"])
     parser.add_argument("--use-folds", type=str2bool, default=False, help="use 6 folds weights")
+    parser.add_argument("--targets", nargs="+", help="target directory names (default: all)")
     options.add_model_args(parser)
     args = options.parse_args_and_arch(parser)
 

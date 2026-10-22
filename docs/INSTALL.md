@@ -47,12 +47,14 @@ molecule encoding uses fp32. `test.sh` and `encode_pocket.sh` require CUDA.
 
 ## Lightweight development checks
 
-These checks need Python, NumPy and Bash, but no model data or GPU:
+These checks need Python, Bash and the packages below; model data and a GPU are not required:
 
 ```bash
+python -m pip install numpy h5py lmdb rdkit
 python -m unittest discover -s tests -v
 bash tests/test_wrappers.sh
-python -m compileall -q unimol utils
+python -m compileall -q unimol utils examples
 ```
 
+GitHub Actions runs these checks on Linux with Python 3.10 and 3.12.
 Test coverage and results are recorded in [validation](VALIDATION.md).

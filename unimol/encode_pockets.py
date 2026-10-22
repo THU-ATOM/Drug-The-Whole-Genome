@@ -12,6 +12,7 @@ import torch
 from unicore import checkpoint_utils, distributed_utils, options, utils
 from unicore.logging import progress_bar
 from unicore import tasks
+from inference_utils import setup_inference
 import numpy as np
 from tqdm import tqdm
 import unicore
@@ -49,10 +50,13 @@ def write_lmdb(data, lmdb_path, num):
     #resume
     
     env = lmdb.open(lmdb_path, subdir=False, readonly=False, lock=False, readahead=False, meminit=False, map_size=1099511627776)
-    with env.begin(write=True) as txn:
-        for d in data:
-            txn.put(str(num).encode('ascii'), pickle.dumps(d))
-            num += 1
+    try:
+        with env.begin(write=True) as txn:
+            for d in data:
+                txn.put(str(num).encode('ascii'), pickle.dumps(d))
+                num += 1
+    finally:
+        env.close()
     
     return num
 
@@ -124,59 +128,54 @@ def pocket2lmdb(pocket_name,biopy_chain,pdb_name):
     }
 
 
-def process_one_pdbdir(dirs,name='pocket'):
-    all_pocket = []
-    for d in os.listdir(dirs):
-        if '.pdb' in d and '_clean' not in d:
-            try:
-                p = PDBParser()
-                model = p.get_structure('0',os.path.join(dirs,d))[0]  
-                tmp_chain,liglist = extract_lig_recpt(model,re.search(r'_.*\.',d)[0][1:-1])
-                pocket = get_binding_pockets(tmp_chain,liglist)
-                pocket = [pocket2lmdb(n,p,d.split('.')[0]) for n,p in pocket]
-                all_pocket += pocket
-            except:
-                pass
-    if os.path.exists(os.path.join(dirs,f'{name}.lmdb')):
+def process_one_pdbdir(dirs, name="pocket"):
+    output = os.path.join(dirs, f"{name}.lmdb")
+    if os.path.exists(output):
+        logger.info("Reusing existing pocket LMDB: %s", output)
         return 0
-    write_lmdb(all_pocket,os.path.join(dirs,f'{name}.lmdb'),0)
+    all_pocket = []
+    succeeded = failed = 0
+    for filename in sorted(os.listdir(dirs)):
+        if not filename.lower().endswith(".pdb") or "_clean" in filename:
+            continue
+        try:
+            stem = os.path.splitext(filename)[0]
+            if "_" not in stem or not stem.rsplit("_", 1)[1]:
+                raise ValueError("Expected filename <structure>_<ligand>.pdb")
+            ligand = stem.rsplit("_", 1)[1]
+            model = PDBParser().get_structure("0", os.path.join(dirs, filename))[0]
+            chain, ligands = extract_lig_recpt(model, ligand)
+            if not ligands:
+                raise ValueError(f"Ligand {ligand!r} not found in the first PDB model")
+            pockets = [pocket2lmdb(n, p, stem) for n, p in get_binding_pockets(chain, ligands)]
+            if not pockets or any(not record["pocket_atoms"] for record in pockets):
+                raise ValueError("No nonempty protein pocket within 6 angstroms of the ligand")
+            all_pocket.extend(pockets)
+            succeeded += 1
+        except Exception as exc:
+            failed += 1
+            logger.warning("Skipping PDB %s: %s", filename, exc)
+    logger.info("PDB preprocessing: %d succeeded, %d failed, %d pockets",
+                succeeded, failed, len(all_pocket))
+    if not all_pocket:
+        raise ValueError(f"No pockets extracted from {dirs}; see PDB errors above")
+    write_lmdb(all_pocket, output, 0)
     return 1
-
 
 
 def main(args):
 
-    use_fp16 = args.fp16
-    use_cuda = torch.cuda.is_available() and not args.cpu
-
-    if use_cuda:
-        torch.cuda.set_device(args.device_id)
-
-
-    # Load model
-    logger.info("loading model(s) from {}".format(args.path))
-    #state = checkpoint_utils.load_checkpoint_to_cpu(args.path)
-    task = tasks.setup_task(args)
-    model = task.build_model(args)
-    #model.load_state_dict(state["model"], strict=False)
-
-    # Move models to GPU
-    if use_fp16:
-        model.half()
-    if use_cuda:
-        model.cuda()
-
-    # Print args
-    logger.info(args)
-
-
-    model.eval()
+    if not os.path.isdir(args.pocket_dir):
+        raise FileNotFoundError(f"Pocket directory not found: {args.pocket_dir}")
+    task, model, _ = setup_inference(args, require_cuda=True)
 
     if not os.path.exists(os.path.join(args.pocket_dir, "pocket.lmdb")):
         ret = process_one_pdbdir(args.pocket_dir)
 
     # read pocket dir 
-    pocket_reps, pocket_names = task.encode_pockets_multi_folds(model, args.pocket_dir, os.path.join(args.pocket_dir, "pocket.lmdb"))
+    with torch.no_grad():
+        pocket_reps, pocket_names = task.encode_pockets_multi_folds(
+            model, args.pocket_dir, os.path.join(args.pocket_dir, "pocket.lmdb"))
 
     # print shape
 

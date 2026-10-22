@@ -5,5 +5,7 @@ data
 *.txt
 test*
 !tests/
-!tests/test_inference.py
+!tests/*.py
 !tests/test_wrappers.sh
+
+/results/

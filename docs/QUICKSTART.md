@@ -23,7 +23,8 @@ The checkpoint filenames contain an underscore (`fold_0.pt`); cache filenames do
 not (`fold0.pkl`). Eight-fold screening requires the corresponding eight
 checkpoints and eight caches. `6_folds_filtered` reuses six-fold checkpoints with
 the `6_folds_filtered` cache directory. Use matching cache versions and the same
-molecule order across folds.
+molecule order across folds. Retrieval checks the row counts, ordered identifiers,
+embedding widths and finite values; mismatches identify the affected cache.
 
 ## Screen the distributed library
 
@@ -59,9 +60,8 @@ DEVICE=cuda CUDA_VISIBLE_DEVICES=0 bash retrieval.sh
 This path encodes the supplied molecules for each fold and leaves the distributed
 caches unchanged.
 
-For a small end-to-end check, use a trusted small molecule LMDB and one validated
-pocket with the six weights. Verify that output is nonempty and every returned
-SMILES belongs to the input.
+The [small example](../examples/mini_screen/README.md) prepares 12 molecules,
+copies one supplied pocket and checks the output count, identifiers and scores.
 
 ## Encode molecules separately
 
@@ -75,8 +75,11 @@ LMDB v2 format only, `START=0 END=1000` selects an index slice of the sorted uni
 is ignored. For NumPy output use the Python
 entry point with `--write-npy` (and optionally `--write-h5`). See its `--help`.
 
-Use a new HDF5 output path when the input, molecule order or checkpoint set
-changes. Resume flags track completed rows only.
+HDF5 files store an encoding manifest. Each run hashes the input LMDB, weights,
+dictionaries and preprocessing code, then checks encoding settings and completion
+masks before resuming. Hashing reads the input file once and can take time for a
+large library. Keep input files unchanged during encoding. Use a new output
+directory when these inputs/settings change or when an older HDF5 has no manifest.
 
 ## Encode pockets separately
 
@@ -109,11 +112,27 @@ TASK=DUDE USE_FOLDS=false WEIGHT_PATH=./data/benchmark_weights/90.pt bash test.s
 TASK=DUDE USE_FOLDS=true bash test.sh
 ```
 
-Set `TASK=PCBA` for LIT-PCBA. Both tasks use `USE_FOLDS` to select the model mode
-and iterate the target directories. DUD-E writes
-`Holo_RealPocket_GenPack.csv` in the working directory and overwrites that file on
-the next run; preserve it and console logs per run. `RESULTS_PATH` is forwarded
-to Uni-Core; this CSV is always written in the working directory.
+Set `TASK=PCBA` for LIT-PCBA. Both tasks use `USE_FOLDS` to select the model mode.
+For selected target directories, set `TARGETS` to space-separated names:
+
+```bash
+TASK=DUDE USE_FOLDS=true TARGETS='target_a target_b' \
+RESULTS_PATH=./results/benchmarks bash test.sh
+```
+
+Replace those names with directories in your data. Omitting `TARGETS` evaluates
+all target directories in sorted order. Unknown names fail before model loading.
+
+Each run creates a unique `<task>-<UTC timestamp>-<id>/` under `RESULTS_PATH`:
+
+- `metrics.csv`: per-target AUC, BEDROC, EF and RE at 0.5%, 1%, 2% and 5%, plus
+  completion status and failure/skip reason.
+- `summary.json`: means over completed targets, requested targets, status counts,
+  model mode, CLI arguments and checkpoint SHA-256 hashes.
+
+Missing target input files are recorded as skipped. Evaluation errors save the
+report and stop the run with a traceback. A run with no completed targets fails.
+Earlier reports remain in their own directories.
 
 ## Large-library chunked screening
 

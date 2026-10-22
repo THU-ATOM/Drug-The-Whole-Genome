@@ -20,6 +20,28 @@ Retrieval checks input paths before allocating the model and lists any missing f
 already modified those files, restore the intended cache archive before using
 cached retrieval. Keep molecule identifiers and ordering consistent across folds.
 
+## A cache reports a molecule-order or embedding error
+
+Use caches produced for the same ordered molecule library and checkpoint set.
+The error names the cache and, for an order mismatch, the first differing row.
+Restore the matching archive or regenerate the complete set. Sorting names alone
+would disconnect them from their embedding rows. NaN/infinite values require
+checking the source coordinates and encoding run before regenerating embeddings.
+
+## HDF5 resume is rejected
+
+A changed manifest means the input, weights, dictionaries, preprocessing code or
+encoding settings differ. Keep the earlier output and choose a new directory.
+Older HDF5 files have no manifest and also require a fresh directory. A completion
+mask with gaps indicates an inconsistent partial file; start a new output file.
+
+## A benchmark skipped or failed a target
+
+Open the run's `metrics.csv` or `summary.json` under `RESULTS_PATH`. Missing
+`mols.lmdb` or the task-specific pocket file is recorded as skipped. An evaluation
+error is recorded as failed and the command exits with the original traceback.
+Correct the input and rerun with `TARGETS` set to the affected target names.
+
 ## Local scores differ from the website
 
 Compare checkpoint version, fold count, pocket residues, structure coordinates,
@@ -73,8 +95,8 @@ and [issue #2](https://github.com/THU-ATOM/Drug-The-Whole-Genome/issues/2).
 - The legacy chunk pipeline keeps chunk IDs as uint8 (do not exceed 256 chunks),
   assumes sufficiently large chunks, and may pad distributed samples across GPUs.
   Start with one GPU and inspect duplicate pocket names before scaling out.
-- Use a new HDF5 output path for a new molecule set, ordering or model version.
-  Resume flags track completed rows only.
+- Use a new HDF5 output directory for changed inputs or encoding settings.
+  See the resume checks above.
 
 ## Installation and platform errors
 

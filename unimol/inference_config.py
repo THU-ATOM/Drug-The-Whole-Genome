@@ -1,5 +1,6 @@
 """Shared inference configuration; importing this module does not load a model."""
 import argparse
+import math
 from pathlib import Path
 
 FOLD_VERSIONS = ("6_folds", "8_folds", "6_folds_filtered")
@@ -59,6 +60,8 @@ def write_ranked_results(scores, names, save_path):
         raise ValueError("Molecule names and scores must have the same length")
     if not len(scores):
         raise ValueError("Cannot rank an empty molecule library")
+    if not all(math.isfinite(float(score)) for score in scores):
+        raise ValueError("Cannot rank NaN or infinite scores")
     ranked = sorted(zip(scores, names), key=lambda pair: pair[0], reverse=True)
     count = max(1, int(len(ranked) * 0.02))
     Path(save_path).parent.mkdir(parents=True, exist_ok=True)
