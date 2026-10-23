@@ -4,3 +4,9 @@ data
 **/py_scripts
 *.txt
 test*
+!tests/
+!tests/test_easy_start.py
+!tests/test_inputs.py
+!requirements-inference.txt
+runs/
+.superpowers/

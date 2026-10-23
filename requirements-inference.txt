@@ -1,0 +1,21 @@
+# Direct inference dependencies. PyTorch 2.1.2 / CUDA 12.1 come from the base image.
+# Uni-Core is pinned separately in docker/Dockerfile.inference.
+numpy==1.24.4
+scipy==1.10.1
+pandas==1.5.3
+scikit-learn==1.2.2
+biopython==1.81
+rdkit==2023.9.5
+lmdb==1.4.1
+h5py==3.10.0
+tqdm==4.66.5
+ipython==8.12.3
+networkx==3.1
+selfies==2.1.1
+zstandard==0.22.0
+ml-collections==0.1.1
+tensorboardX==2.6.2.2
+tokenizers==0.13.3
+wandb==0.15.12
+iopath==0.1.10
+omegaconf==2.3.0

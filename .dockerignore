@@ -1,0 +1,6 @@
+.git
+runs
+data
+__pycache__
+**/__pycache__
+.superpowers

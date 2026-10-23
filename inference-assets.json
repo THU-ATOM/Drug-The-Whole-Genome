@@ -1,0 +1,10 @@
+{
+  "dataset": "THU-ATOM/DrugCLIP_data",
+  "revision": "1025437db09a31d956dfede6a9a4bec81131713d",
+  "files": {
+    "weights": {"path": "model_weights.zip", "size": 13007383205, "sha256": "978fee1e29423ba4ab1d419532d95462015c86223b72ed792d0fee9d307eeae0"},
+    "molecules": {"path": "encoded_mol_embs.zip", "size": 5911416616, "sha256": "1e0c9c82e360f7eb78f196aae31485d83da18bdf137cf9d53e14a858172e1f9b"},
+    "pocket": {"path": "WetLab_PDBs_and_LMDBs/NET/pocket.lmdb", "size": 315392, "sha256": "d4a92a87fb6cdd1e7cdedead1183f953e267a0d58fa80fe832913acbfc3ca28a"},
+    "complex": {"path": "WetLab_PDBs_and_LMDBs/NET/NET1_DSP.pdb", "size": 732427, "sha256": "f164eddf8551b1ce7d5baab7190bc073b0c14717091038d0eeb3439100a9936a"}
+  }
+}

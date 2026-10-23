@@ -1,0 +1,16 @@
+# Verified release digest: sha256:3387e598cb94fc248d82e712a65b10931a990cea3a2e76362ca30d135f565de4
+FROM pytorch/pytorch:2.1.2-cuda12.1-cudnn8-runtime
+
+ARG UNICORE_COMMIT=ace6fae1c8479a9751f2bb1e1d6e4047427bc134
+ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 \
+    OMP_NUM_THREADS=2 OPENBLAS_NUM_THREADS=2 MKL_NUM_THREADS=2
+
+RUN apt-get update && apt-get install -y --no-install-recommends git ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+COPY requirements-inference.txt /tmp/requirements-inference.txt
+ARG PIP_INDEX_URL=https://pypi.org/simple
+RUN python -m pip install --no-cache-dir -r /tmp/requirements-inference.txt \
+    && python -m pip install --no-cache-dir --no-deps --no-build-isolation \
+       "git+https://github.com/dptech-corp/Uni-Core.git@${UNICORE_COMMIT}" \
+    && python -c "import torch,unicore,lmdb,Bio,rdkit,h5py; assert torch.__version__.split('+')[0]=='2.1.2'"
+WORKDIR /app
