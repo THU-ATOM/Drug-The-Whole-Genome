@@ -55,6 +55,29 @@ class InputTests(unittest.TestCase):
         with self.assertRaisesRegex(runner.UserError, 'ambiguous'):
             runner.prepare_pdb(self.pdb, dict(complex=True,chains='A',ligand='LIG'), self.root)
 
+    def test_nonfinite_ligand_coordinates_fail_before_pocket_selection_or_writes(self):
+        for invalid in (float('nan'), float('inf')):
+            with self.subTest(coordinate=invalid):
+                self.pdb.write_text(self.protein +
+                    atom(4,'C1','LIG','A',501,(1,0,0),'C',True) +
+                    atom(5,'C2','LIG','A',501,(invalid,0,0),'C',True) + 'END\n')
+                with self.assertRaisesRegex(runner.UserError, 'ligand.*nonfinite'):
+                    runner.prepare_pdb(self.pdb, dict(complex=True,chains='A',ligand='LIG'), self.root)
+                self.assertFalse((self.root/'prepared_pocket.pdb').exists())
+                self.assertFalse((self.root/'pocket_definition.json').exists())
+
+    def test_nonfinite_selected_chain_atoms_fail_even_when_cutoff_would_omit_them(self):
+        for element, invalid in (('C', float('nan')), ('C', float('inf')),
+                                 ('H', float('nan')), ('H', float('inf'))):
+            with self.subTest(element=element, coordinate=invalid):
+                self.pdb.write_text(self.protein +
+                    atom(4,'C1','LIG','A',501,(1,0,0),'C',True) +
+                    atom(5,element,'ALA','A',3,(invalid,0,0),element) + 'END\n')
+                with self.assertRaisesRegex(runner.UserError, 'protein.*nonfinite'):
+                    runner.prepare_pdb(self.pdb, dict(complex=True,chains='A',ligand='LIG'), self.root)
+                self.assertFalse((self.root/'prepared_pocket.pdb').exists())
+                self.assertFalse((self.root/'pocket_definition.json').exists())
+
     def test_multi_model_input_requires_selection(self):
         self.pdb.write_text('MODEL        1\n' + self.protein + 'ENDMDL\nMODEL        2\n' + self.protein + 'ENDMDL\n')
         with self.assertRaisesRegex(runner.UserError, 'single-model'):

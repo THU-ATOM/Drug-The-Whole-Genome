@@ -334,7 +334,12 @@ def prepare_pdb(path, options, output):
         ligand_coords = np.array([a.coord for a in ligand['object'] if a.element not in ('H', 'D')])
         if not len(ligand_coords):
             raise UserError('Selected ligand has no heavy atoms.')
-        selected = [r for r in standard if r.parent.id in chains and any(
+        if not np.isfinite(ligand_coords).all():
+            raise UserError('Selected ligand contains nonfinite heavy-atom coordinates.')
+        eligible = [r for r in standard if r.parent.id in chains]
+        if any(not np.isfinite(a.coord).all() for r in eligible for a in r):
+            raise UserError('Selected protein chains contain nonfinite atom coordinates.')
+        selected = [r for r in eligible if any(
             np.any(np.linalg.norm(ligand_coords - a.coord, axis=1) <= 6.0)
             for a in r)]
     else:
