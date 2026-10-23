@@ -1,7 +1,7 @@
 # DrugCLIP: start with a working example
 
 DrugCLIP ranks molecules against a **defined 3D protein pocket**. Start with the released
-NET example below, then supply your own pocket. You do not need an AIPherDD account.
+NET example below, then supply your own pocket on your own Linux machine.
 A rank is a screening prediction; it does not establish binding or activity.
 
 ## 1. Prerequisites
@@ -35,6 +35,8 @@ Read `runs/net/results.csv` (`rank,molecule,score`). The released engine returns
 top 2% of the cached molecule records, after averaging the six folds, applying robust
 per-pocket normalization and taking the maximum across supplied pockets/templates.
 This score depends on the background library; it is not an affinity or a universal activity threshold.
+The `molecule` cell preserves the complete cached identity (`ID,SMILES` in this release).
+Its embedded comma is CSV-quoted; read this file with a CSV parser.
 
 Each run also saves `run.log`, `run_manifest.json`, `inference_manifest.json`, the
 prepared pocket LMDB and the unmodified raw ranking. Manifests record hashes,

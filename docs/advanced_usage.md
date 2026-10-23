@@ -62,7 +62,7 @@ Matching checkpoints + supplied embeddings OR your prepared molecules ── Dru
 | An apo structure, AlphaFold model, or newly predicted site | Pocket detection/refinement | Site localization and structure quality; consider the linked GenPack workflow |
 | Only a sequence or SMILES strings | Prepare structure/conformers first | These are not replacements for pocket/molecule coordinate records |
 
-Core screening can run locally or on your own server. AIPherDD and access to a particular supercomputer are not prerequisites for this repository. Larger hosted libraries or other services have their own access and input contracts.
+Core screening runs on your own Linux machine or server using the environment and resources declared in this repository. Select an available NVIDIA GPU and keep inputs, caches and outputs in directories you control.
 
 ## Install and check the environment
 
@@ -163,7 +163,7 @@ CUDA_VISIBLE_DEVICES=0 python unimol/retrieval.py ./dict \
   --save-path runs/net/results.txt
 ```
 
-The output is a descending list of `molecule_name,score`, **without a header**. With the supplied cache, molecule names are intended to identify the supplied compounds; inspect the cache metadata before treating every name as a valid SMILES or supplier ID. Check nonempty output, finite scores and traceable molecule identities. Running successfully is an execution check, not a reproduction of a published enrichment or experimental hit rate.
+The original engine writes descending `molecule_identity,score` records **without a header**, using the last comma to separate the score. The pinned cache stores composite `ID,SMILES` identities, so its raw records physically contain `ID,SMILES,score`; do not assume exactly two comma-separated fields. The quick-start `results.csv` instead has three CSV columns (`rank,molecule,score`) and quotes the complete identity in the `molecule` cell. Read that file with a CSV parser. Check nonempty output, finite scores and traceable identities. Running successfully is an execution check, not a reproduction of a published enrichment or experimental hit rate.
 
 For the original 5-HT2A setup, use the matching `8_folds` checkpoints **and** caches and set `--fold-version 8_folds`. There is no `--num-folds` flag on this retrieval entry point. Do not mix six-fold and eight-fold resources. See the score differences below.
 
@@ -373,7 +373,7 @@ The code therefore writes the **top 2%**, despite a nearby comment saying “top
 
 Modified z-scores depend on the background library. Scores from different libraries, pocket ensembles, normalization references, or six/eight-fold routes are not automatically comparable. A high score is a prioritization signal, not a binding-affinity unit or universal pass threshold. Adding more pockets changes the maximum-over-pockets selection and should be documented.
 
-The output names come from the cache or `smi` field in the uncached loader. Two-column output does not retain supplier metadata by itself. Join identities back to your source table before selecting, purchasing, or reporting compounds.
+The output identities come from the cache or the `smi` field in the uncached loader. Their contents depend on how the library was prepared: the pinned cache retains `ID,SMILES`, while another cache may retain only a SMILES or another identifier. Preserve the entire identity; for raw engine output, split only at the last comma to recover the score. Resolve available identifiers against your source table and join any additional supplier/subset metadata before selecting, purchasing, or reporting compounds.
 
 ## Large libraries and chunked screening
 
@@ -488,7 +488,7 @@ The linked [reference screening pipeline](https://github.com/THU-ATOM/DrugCLIP_s
 4. Dock selected candidates into an appropriate prepared receptor; inspect poses, clashes and target-specific interactions.
 5. Prioritize follow-up experiments and retain negative/positive controls appropriate to the claim being tested.
 
-That pipeline consumes a **header followed by four fields in order**: molecule ID, supplier/subset, DrugCLIP score, SMILES. Ordinary core retrieval output has only two fields and no header. Perform an explicit join to the library's identity table; do not add invented IDs or assume the formats are interchangeable.
+That pipeline consumes a **header followed by four fields in order**: molecule ID, supplier/subset, DrugCLIP score, SMILES. Raw core retrieval output has no header and writes an opaque identity followed by a final comma and score; the pinned composite identity makes its raw records `ID,SMILES,score`. The quick-start CSV has the different header `rank,molecule,score`. Neither format is directly interchangeable with the pipeline input. Resolve the complete identity against the library's identity table, join any missing supplier/subset metadata and write the required four fields explicitly; do not invent IDs.
 
 Its clustering and Glide scripts require a licensed Schrödinger installation and currently hardcode `SCHRODINGER = '/opt/schrodinger2021-2'`. Configure the copies you use for your installation; exporting an environment variable alone does not override that Python constant. Its documentation includes command templates and cofactor/grid options. It is a reference workflow to configure, not a dependency automatically installed by this repository.
 

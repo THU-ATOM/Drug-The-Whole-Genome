@@ -1,5 +1,5 @@
 # Verified release digest: sha256:3387e598cb94fc248d82e712a65b10931a990cea3a2e76362ca30d135f565de4
-FROM pytorch/pytorch:2.1.2-cuda12.1-cudnn8-runtime
+FROM pytorch/pytorch:2.1.2-cuda12.1-cudnn8-runtime@sha256:3387e598cb94fc248d82e712a65b10931a990cea3a2e76362ca30d135f565de4
 
 ARG UNICORE_COMMIT=ace6fae1c8479a9751f2bb1e1d6e4047427bc134
 ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 \
